@@ -1,0 +1,44 @@
+F1 Model Evaluation Report
+Trained at: 2026-06-15T21:22:33.359502+00:00
+Train seasons: [2021, 2022, 2023]
+Test season: 2024
+
+position_model
+  Algorithm: RandomForestRegressor
+  Metrics: mae=3.0275, rmse=3.9637, r2=0.5257
+  Top features:
+    qualifying_position: 0.422519
+    team_recent_form: 0.142805
+    gap_to_pole_ms: 0.137754
+    driver_recent_form: 0.102404
+    avg_race_pace_ms: 0.088122
+
+top10_model
+  Algorithm: XGBClassifier
+  Metrics: accuracy=0.8214, precision=0.8426, recall=0.7913, f1=0.8161, roc_auc=0.8810
+  Top features:
+    qualifying_position: 0.571255
+    team_recent_form: 0.117674
+    grid_position: 0.069449
+    avg_race_pace_ms: 0.064578
+    driver_recent_form: 0.063982
+
+podium_model
+  Algorithm: XGBClassifier
+  Metrics: accuracy=0.8932, precision=0.6220, recall=0.7391, f1=0.6755, roc_auc=0.9368
+  Top features:
+    qualifying_position: 0.617334
+    gap_to_pole_ms: 0.095056
+    team_recent_form: 0.069514
+    grid_position: 0.065388
+    driver_recent_form: 0.047745
+
+position_gain_model
+  Algorithm: LGBMRegressor
+  Metrics: mae=3.1747, rmse=4.1606, r2=-0.0028
+  Top features:
+    avg_race_pace_ms: 563.000000
+    gap_to_pole_ms: 540.000000
+    team_recent_form: 456.000000
+    driver_recent_form: 446.000000
+    grid_position: 379.000000
