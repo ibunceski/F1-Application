@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-f1-dark text-f1-text;
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-f1-surface border border-f1-border rounded-lg;
+  }
+  .card-elevated {
+    @apply bg-f1-elevated border border-f1-border rounded-lg;
+  }
+  .data-value {
+    @apply font-mono text-f1-text tabular-nums;
+  }
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-widest text-f1-muted;
+  }
+  .f1-red-accent {
+    @apply border-l-2 border-f1-red pl-3;
+  }
+}

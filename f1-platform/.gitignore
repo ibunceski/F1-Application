@@ -1,0 +1,13 @@
+.env
+.env.local
+.env.*.local
+*.log
+logs/
+backend/logs/
+backend/cache/
+backend/models_store/*.joblib
+backend/models_store/*.pkl
+backend/models_store/*.json
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/node_modules/
