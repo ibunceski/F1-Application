@@ -224,8 +224,8 @@ def _query_races(seasons: list[int], round_number: int | None) -> list[tuple[Rac
         return list(db.execute(statement).all())
 
 
-def _is_future_race(race_date: date) -> bool:
-    return race_date > datetime.now(UTC).date()
+def _is_upcoming_race(race_date: date) -> bool:
+    return race_date >= datetime.now(UTC).date()
 
 
 def _log_sprint_format_note(session: Any, year: int, round_number: int) -> None:
@@ -298,34 +298,45 @@ def ingest_qualifying_results(race: Race, year: int) -> int:
     started_at = time.monotonic()
     try:
         LOGGER.info("Loading qualifying session for %s Round %s", year, race.round_number)
-        session = fastf1.get_session(year, race.round_number, "Q")
-        session.load(laps=False, telemetry=False, weather=False, messages=False)
-        _log_sprint_format_note(session, year, race.round_number)
-
         rows: list[dict[str, Any]] = []
         pole_best_time_ms: float | None = None
-        if _is_fastf1_qualifying_complete(session.results):
-            for _, row in session.results.iterrows():
-                q1_time_ms, q2_time_ms, q3_time_ms, best_time_ms = _qualifying_times(row)
-                position = _to_int(row.get("Position"))
-                rows.append(
-                    {
-                        "abbreviation": _to_str(row.get("Abbreviation")),
-                        "team_name": _to_str(row.get("TeamName")),
-                        "position": position,
-                        "q1_time_ms": q1_time_ms,
-                        "q2_time_ms": q2_time_ms,
-                        "q3_time_ms": q3_time_ms,
-                        "best_time_ms": best_time_ms,
-                    }
+
+        try:
+            session = fastf1.get_session(year, race.round_number, "Q")
+            session.load(laps=False, telemetry=False, weather=False, messages=False)
+            _log_sprint_format_note(session, year, race.round_number)
+
+            if _is_fastf1_qualifying_complete(session.results):
+                for _, row in session.results.iterrows():
+                    q1_time_ms, q2_time_ms, q3_time_ms, best_time_ms = _qualifying_times(row)
+                    position = _to_int(row.get("Position"))
+                    rows.append(
+                        {
+                            "abbreviation": _to_str(row.get("Abbreviation")),
+                            "team_name": _to_str(row.get("TeamName")),
+                            "position": position,
+                            "q1_time_ms": q1_time_ms,
+                            "q2_time_ms": q2_time_ms,
+                            "q3_time_ms": q3_time_ms,
+                            "best_time_ms": best_time_ms,
+                        }
+                    )
+                    if position == 1:
+                        pole_best_time_ms = best_time_ms
+            else:
+                LOGGER.warning(
+                    "FastF1 qualifying results incomplete for %s Round %s; using Jolpica fallback.",
+                    year,
+                    race.round_number,
                 )
-                if position == 1:
-                    pole_best_time_ms = best_time_ms
-        else:
+                rows = _jolpica_qualifying_rows(year, race.round_number)
+                pole_best_time_ms = next((row["best_time_ms"] for row in rows if row["position"] == 1), None)
+        except Exception as exc:
             LOGGER.warning(
-                "FastF1 qualifying results incomplete for %s Round %s; using Jolpica fallback.",
+                "FastF1 qualifying unavailable for %s Round %s (%s); using Jolpica fallback.",
                 year,
                 race.round_number,
+                exc,
             )
             rows = _jolpica_qualifying_rows(year, race.round_number)
             pole_best_time_ms = next((row["best_time_ms"] for row in rows if row["position"] == 1), None)
@@ -469,8 +480,13 @@ def main() -> None:
         LOGGER.warning("No races found for seasons=%s round=%s", args.seasons, args.round_number)
 
     for race, year in races:
-        if _is_future_race(race.race_date):
-            LOGGER.warning("Skipping future race: %s Round %s (%s)", year, race.round_number, race.race_date)
+        if _is_upcoming_race(race.race_date):
+            LOGGER.warning(
+                "Skipping upcoming race without final results: %s Round %s (%s)",
+                year,
+                race.round_number,
+                race.race_date,
+            )
             continue
 
         if not args.skip_qualifying:

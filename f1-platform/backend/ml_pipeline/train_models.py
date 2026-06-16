@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from lightgbm import LGBMRegressor
+from sqlalchemy import text
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.impute import SimpleImputer
@@ -39,10 +40,22 @@ load_dotenv(ROOT_DIR / ".env")
 load_dotenv(PROJECT_DIR / ".env", override=False)
 
 from ingestion.db_helpers import get_sync_engine
+from app.models.ml_feature import POST_QUALIFYING, PRE_QUALIFYING
 
 LOGGER = logging.getLogger("ml.train_models")
 
-FEATURE_COLS = [
+PRE_QUALIFYING_FEATURE_COLS = [
+    "avg_race_pace_ms",
+    "driver_recent_form",
+    "team_recent_form",
+    "circuit_history_avg_finish",
+    "circuit_history_dnf_rate",
+    "dnf_rate_recent",
+    "weather_is_wet",
+    "avg_track_temp_c",
+]
+
+POST_QUALIFYING_FEATURE_COLS = [
     "grid_position",
     "qualifying_position",
     "gap_to_pole_ms",
@@ -55,6 +68,16 @@ FEATURE_COLS = [
     "weather_is_wet",
     "avg_track_temp_c",
 ]
+CONTEXT_FEATURE_COLS = {
+    PRE_QUALIFYING: PRE_QUALIFYING_FEATURE_COLS,
+    POST_QUALIFYING: POST_QUALIFYING_FEATURE_COLS,
+}
+MODEL_NAMES = {
+    "position_model": "position_model.joblib",
+    "top10_model": "top10_model.joblib",
+    "podium_model": "podium_model.joblib",
+    "position_gain_model": "position_gain_model.joblib",
+}
 
 TARGET_POSITION = "actual_finishing_position"
 TARGET_TOP10 = "finished_top10"
@@ -66,6 +89,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train F1 prediction models.")
     parser.add_argument("--train-seasons", nargs="+", type=int, required=True)
     parser.add_argument("--test-season", type=int, required=True)
+    parser.add_argument(
+        "--context",
+        "--feature-context",
+        dest="context",
+        choices=[PRE_QUALIFYING, POST_QUALIFYING, "all"],
+        default=POST_QUALIFYING,
+    )
     parser.add_argument("--model-output-dir", default="models_store/")
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
@@ -95,11 +125,12 @@ def resolve_output_dir(path_value: str) -> Path:
     return output_dir
 
 
-def load_feature_dataframe() -> pd.DataFrame:
+def load_feature_dataframe(feature_context: str) -> pd.DataFrame:
     query = """
         SELECT
             mf.race_id,
             mf.driver_id,
+            mf.feature_context,
             s.year AS season_year,
             mf.grid_position,
             mf.qualifying_position,
@@ -133,11 +164,18 @@ def load_feature_dataframe() -> pd.DataFrame:
         LEFT JOIN race_results rr
             ON rr.race_id = mf.race_id
             AND rr.driver_id = mf.driver_id
+        WHERE mf.feature_context = :feature_context
     """
-    df = pd.read_sql_query(query, get_sync_engine())
-    df = df[df["grid_position"].notna() & df["qualifying_position"].notna()].copy()
+    df = pd.read_sql_query(text(query), get_sync_engine(), params={"feature_context": feature_context})
+    if feature_context == POST_QUALIFYING:
+        df = df[df["grid_position"].notna() & df["qualifying_position"].notna()].copy()
     df["weather_is_wet"] = df["weather_is_wet"].astype(float)
     return df
+
+
+def validate_split(train_seasons: list[int], test_season: int) -> None:
+    if any(season >= test_season for season in train_seasons):
+        raise ValueError("Strict time split requires every train season to be before the test season.")
 
 
 def split_train_test(
@@ -153,7 +191,7 @@ def split_train_test(
     return train_df, test_df
 
 
-def build_preprocessor() -> ColumnTransformer:
+def build_preprocessor(feature_cols: list[str]) -> ColumnTransformer:
     numeric_pipeline = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
@@ -161,15 +199,15 @@ def build_preprocessor() -> ColumnTransformer:
         ]
     )
     return ColumnTransformer(
-        transformers=[("numeric", numeric_pipeline, FEATURE_COLS)],
+        transformers=[("numeric", numeric_pipeline, feature_cols)],
         remainder="drop",
     )
 
 
-def build_pipeline(model: Any) -> Pipeline:
+def build_pipeline(model: Any, feature_cols: list[str]) -> Pipeline:
     return Pipeline(
         steps=[
-            ("preprocessor", build_preprocessor()),
+            ("preprocessor", build_preprocessor(feature_cols)),
             ("model", model),
         ]
     )
@@ -206,6 +244,7 @@ def fit_evaluate_regressor(
     test_df: pd.DataFrame,
     target_col: str,
     candidates: dict[str, Any],
+    feature_cols: list[str],
 ) -> tuple[str, Pipeline, dict[str, dict[str, float]]]:
     train_target = train_df[train_df[target_col].notna()].copy()
     test_target = test_df[test_df[target_col].notna()].copy()
@@ -217,9 +256,9 @@ def fit_evaluate_regressor(
     LOGGER.info("%-24s %-10s %-10s %-10s", "Algorithm", "MAE", "RMSE", "R2")
 
     for algorithm, model in candidates.items():
-        pipeline = build_pipeline(model)
-        pipeline.fit(train_target[FEATURE_COLS], train_target[target_col])
-        predictions = pipeline.predict(test_target[FEATURE_COLS])
+        pipeline = build_pipeline(model, feature_cols)
+        pipeline.fit(train_target[feature_cols], train_target[target_col])
+        predictions = pipeline.predict(test_target[feature_cols])
         metrics = regression_metrics(test_target[target_col], predictions)
         results[algorithm] = metrics
         fitted_models[algorithm] = pipeline
@@ -247,6 +286,7 @@ def fit_evaluate_classifier(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     target_col: str,
+    feature_cols: list[str],
 ) -> tuple[Pipeline, dict[str, float]]:
     train_target = train_df[train_df[target_col].notna()].copy()
     test_target = test_df[test_df[target_col].notna()].copy()
@@ -263,10 +303,10 @@ def fit_evaluate_classifier(
         random_state=42,
         eval_metric="logloss",
     )
-    pipeline = build_pipeline(model)
-    pipeline.fit(train_target[FEATURE_COLS], y_train)
-    predictions = pipeline.predict(test_target[FEATURE_COLS])
-    probabilities = pipeline.predict_proba(test_target[FEATURE_COLS])[:, 1]
+    pipeline = build_pipeline(model, feature_cols)
+    pipeline.fit(train_target[feature_cols], y_train)
+    predictions = pipeline.predict(test_target[feature_cols])
+    probabilities = pipeline.predict_proba(test_target[feature_cols])[:, 1]
     return pipeline, classification_metrics(y_test, predictions, probabilities)
 
 
@@ -274,6 +314,8 @@ def train_position_model(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     output_dir: Path,
+    feature_context: str,
+    feature_cols: list[str],
 ) -> tuple[Pipeline, dict[str, Any]]:
     candidates = {
         "RandomForestRegressor": RandomForestRegressor(
@@ -300,20 +342,33 @@ def train_position_model(
         test_df,
         TARGET_POSITION,
         candidates,
+        feature_cols,
     )
-    joblib.dump(best_model, output_dir / "position_model.joblib", compress=3)
+    joblib.dump(best_model, output_dir / f"{feature_context}_{MODEL_NAMES['position_model']}", compress=3)
     return best_model, {"algorithm": best_algorithm, **all_results[best_algorithm]}
 
 
-def train_top10_model(train_df: pd.DataFrame, test_df: pd.DataFrame, output_dir: Path) -> tuple[Pipeline, dict[str, Any]]:
-    model, metrics = fit_evaluate_classifier(train_df, test_df, TARGET_TOP10)
-    joblib.dump(model, output_dir / "top10_model.joblib", compress=3)
+def train_top10_model(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    output_dir: Path,
+    feature_context: str,
+    feature_cols: list[str],
+) -> tuple[Pipeline, dict[str, Any]]:
+    model, metrics = fit_evaluate_classifier(train_df, test_df, TARGET_TOP10, feature_cols)
+    joblib.dump(model, output_dir / f"{feature_context}_{MODEL_NAMES['top10_model']}", compress=3)
     return model, {"algorithm": "XGBClassifier", **metrics}
 
 
-def train_podium_model(train_df: pd.DataFrame, test_df: pd.DataFrame, output_dir: Path) -> tuple[Pipeline, dict[str, Any]]:
-    model, metrics = fit_evaluate_classifier(train_df, test_df, TARGET_PODIUM)
-    joblib.dump(model, output_dir / "podium_model.joblib", compress=3)
+def train_podium_model(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    output_dir: Path,
+    feature_context: str,
+    feature_cols: list[str],
+) -> tuple[Pipeline, dict[str, Any]]:
+    model, metrics = fit_evaluate_classifier(train_df, test_df, TARGET_PODIUM, feature_cols)
+    joblib.dump(model, output_dir / f"{feature_context}_{MODEL_NAMES['podium_model']}", compress=3)
     return model, {"algorithm": "XGBClassifier", **metrics}
 
 
@@ -321,6 +376,8 @@ def train_position_gain_model(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     output_dir: Path,
+    feature_context: str,
+    feature_cols: list[str],
 ) -> tuple[Pipeline, dict[str, Any]]:
     candidates = {
         "LGBMRegressor": LGBMRegressor(
@@ -331,19 +388,19 @@ def train_position_gain_model(
             verbose=-1,
         )
     }
-    best_algorithm, model, results = fit_evaluate_regressor(train_df, test_df, TARGET_GAIN, candidates)
-    joblib.dump(model, output_dir / "position_gain_model.joblib", compress=3)
+    best_algorithm, model, results = fit_evaluate_regressor(train_df, test_df, TARGET_GAIN, candidates, feature_cols)
+    joblib.dump(model, output_dir / f"{feature_context}_{MODEL_NAMES['position_gain_model']}", compress=3)
     return model, {"algorithm": best_algorithm, **results[best_algorithm]}
 
 
-def feature_importances(model: Pipeline) -> dict[str, float]:
+def feature_importances(model: Pipeline, feature_cols: list[str]) -> dict[str, float]:
     estimator = model.named_steps["model"]
     importances = getattr(estimator, "feature_importances_", None)
     if importances is None:
         return {}
     return {
         feature_name: float(importance)
-        for feature_name, importance in zip(FEATURE_COLS, importances, strict=False)
+        for feature_name, importance in zip(feature_cols, importances, strict=False)
     }
 
 
@@ -366,6 +423,7 @@ def build_report(
     lines = [
         "F1 Model Evaluation Report",
         f"Trained at: {metadata['trained_at']}",
+        f"Feature context: {metadata['feature_context']}",
         f"Train seasons: {metadata['train_seasons']}",
         f"Test season: {metadata['test_season']}",
         "",
@@ -396,69 +454,97 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
         json.dump(json_safe(data), output_file, indent=2, sort_keys=True, allow_nan=False)
 
 
-def main() -> None:
-    args = parse_args()
-    configure_logging(args.verbose)
-    output_dir = resolve_output_dir(args.model_output_dir)
+def train_context(
+    feature_context: str,
+    train_seasons: list[int],
+    test_season: int,
+    output_dir: Path,
+) -> str:
+    feature_cols = CONTEXT_FEATURE_COLS[feature_context]
+    LOGGER.info("Training %s model family with features=%s", feature_context, feature_cols)
 
-    df = load_feature_dataframe()
-    train_df, test_df = split_train_test(df, args.train_seasons, args.test_season)
-
+    df = load_feature_dataframe(feature_context)
+    train_df, test_df = split_train_test(df, train_seasons, test_season)
     if train_df.empty:
-        raise RuntimeError("Training set is empty.")
+        raise RuntimeError(f"{feature_context} training set is empty.")
     if test_df.empty:
-        raise RuntimeError("Test set is empty.")
+        raise RuntimeError(f"{feature_context} test set is empty.")
 
     trained_models: dict[str, Pipeline] = {}
     model_metadata: dict[str, dict[str, Any]] = {}
 
-    LOGGER.info("Training finishing position regression candidates")
+    LOGGER.info("[%s] Training finishing position regression candidates", feature_context)
     trained_models["position_model"], model_metadata["position_model"] = train_position_model(
         train_df,
         test_df,
         output_dir,
+        feature_context,
+        feature_cols,
     )
 
-    LOGGER.info("Training top10 classifier")
+    LOGGER.info("[%s] Training top10 classifier", feature_context)
     trained_models["top10_model"], model_metadata["top10_model"] = train_top10_model(
         train_df,
         test_df,
         output_dir,
+        feature_context,
+        feature_cols,
     )
 
-    LOGGER.info("Training podium classifier")
+    LOGGER.info("[%s] Training podium classifier", feature_context)
     trained_models["podium_model"], model_metadata["podium_model"] = train_podium_model(
         train_df,
         test_df,
         output_dir,
+        feature_context,
+        feature_cols,
     )
 
-    LOGGER.info("Training position gain/loss regressor")
+    LOGGER.info("[%s] Training position gain/loss regressor", feature_context)
     trained_models["position_gain_model"], model_metadata["position_gain_model"] = train_position_gain_model(
         train_df,
         test_df,
         output_dir,
+        feature_context,
+        feature_cols,
     )
 
     feature_importance_data = {
-        model_name: feature_importances(model)
+        model_name: feature_importances(model, feature_cols)
         for model_name, model in trained_models.items()
     }
 
     metadata = {
         "trained_at": datetime.now(UTC).isoformat(),
-        "train_seasons": args.train_seasons,
-        "test_season": args.test_season,
+        "feature_context": feature_context,
+        "train_seasons": train_seasons,
+        "test_season": test_season,
         "models": model_metadata,
-        "feature_columns": FEATURE_COLS,
+        "feature_columns": feature_cols,
         "feature_importances": feature_importance_data,
     }
 
-    write_json(output_dir / "feature_importances.json", feature_importance_data)
-    write_json(output_dir / "model_metadata.json", metadata)
+    write_json(output_dir / f"{feature_context}_feature_importances.json", feature_importance_data)
+    write_json(output_dir / f"{feature_context}_model_metadata.json", metadata)
 
     report = build_report(metadata, feature_importance_data)
-    (output_dir / "evaluation_report.txt").write_text(report, encoding="utf-8")
+    (output_dir / f"{feature_context}_evaluation_report.txt").write_text(report, encoding="utf-8")
+    LOGGER.info("[%s] Training complete", feature_context)
+    return report
+
+
+def main() -> None:
+    args = parse_args()
+    configure_logging(args.verbose)
+    validate_split(args.train_seasons, args.test_season)
+    output_dir = resolve_output_dir(args.model_output_dir)
+
+    contexts = [PRE_QUALIFYING, POST_QUALIFYING] if args.context == "all" else [args.context]
+    reports = [
+        train_context(context, args.train_seasons, args.test_season, output_dir)
+        for context in contexts
+    ]
+    report = "\n\n".join(reports)
     print(report)
 
 
