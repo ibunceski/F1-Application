@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { getTyreStrategy } from '../../api/analysis';
 import { getRaceById, getRaceResults } from '../../api/races';
+import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import type { DriverTyreStrategy } from '../../types';
@@ -39,13 +40,47 @@ function strategyStats(strategies: DriverTyreStrategy[]) {
   return { mostCommon, earliest, latest, stopSummary };
 }
 
+function raceHasHappened(raceDate?: string) {
+  if (!raceDate) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(raceDate);
+  target.setHours(0, 0, 0, 0);
+  return target < today;
+}
+
 export function TyreStrategy() {
   const raceId = Number(useParams().raceId);
   const race = useQuery({ queryKey: ['race', raceId], queryFn: () => getRaceById(raceId) });
-  const strategy = useQuery({ queryKey: ['tyre-strategy', raceId], queryFn: () => getTyreStrategy(raceId) });
-  const results = useQuery({ queryKey: ['race-results', raceId], queryFn: () => getRaceResults(raceId) });
+  const canLoadStrategy = raceHasHappened(race.data?.race_date);
+  const strategy = useQuery({
+    queryKey: ['tyre-strategy', raceId],
+    queryFn: () => getTyreStrategy(raceId),
+    enabled: canLoadStrategy,
+  });
+  const results = useQuery({
+    queryKey: ['race-results', raceId],
+    queryFn: () => getRaceResults(raceId),
+    enabled: canLoadStrategy,
+  });
 
   if (race.isLoading || strategy.isLoading || results.isLoading) return <LoadingSpinner />;
+  if (race.data && !canLoadStrategy) {
+    return (
+      <div className="space-y-6">
+        <header className="border-b border-f1-border pb-4">
+          <p className="font-mono text-xs font-semibold uppercase tracking-widest text-f1-red">
+            Round {race.data.round_number} / {race.data.race_name}
+          </p>
+          <h1 className="mt-2 text-3xl font-bold text-f1-white">{race.data.circuit_name} - Tyre Strategy</h1>
+        </header>
+        <EmptyState
+          title="Race has not happened yet"
+          description="Tyre strategy is available after race results, lap data, and stint data are ingested."
+        />
+      </div>
+    );
+  }
   if (race.isError || strategy.isError || results.isError) {
     return <ErrorState message="Tyre strategy data could not be loaded." />;
   }

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { getNextRace } from '../../api/races';
 
 function breadcrumb(pathname: string, year?: string) {
@@ -29,12 +29,17 @@ export function TopBar() {
       <p className="text-sm font-medium text-f1-muted">{breadcrumb(location.pathname, params.year)}</p>
       <div className="flex items-center gap-3">
         {days === 0 ? (
-          <span className="rounded-full border border-f1-red px-3 py-1 text-xs font-semibold uppercase text-f1-red">Live</span>
+          <Link
+            to="/predictions/next-race"
+            className="rounded-full border border-f1-red px-3 py-1 text-xs font-semibold uppercase text-f1-red hover:bg-f1-red hover:text-white"
+          >
+            Live
+          </Link>
         ) : nextRace.data ? (
-          <span className="text-sm text-f1-muted">
+          <Link to="/predictions/next-race" className="text-sm text-f1-muted hover:text-f1-white">
             Next Race: <span className="text-f1-text">{nextRace.data.race_name}</span>
             {days !== null && days > 0 ? ` in ${days} days` : ''}
-          </span>
+          </Link>
         ) : null}
       </div>
     </header>

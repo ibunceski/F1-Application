@@ -167,9 +167,60 @@ export interface Prediction {
   predicted_position_gain: number | null;
   confidence_score: number | null;
   model_version: string;
+  model_context?: PredictionContext;
+  feature_context?: PredictionContext;
+  generated_at?: string;
 }
 
-export type FeatureImportances = Record<string, Record<string, number>>;
+export type PredictionContext = 'pre_qualifying' | 'post_qualifying';
+
+export type NextRacePredictionMode = PredictionContext | 'auto';
+
+export interface NextRacePredictionContext {
+  race: Race;
+  recommended_context: PredictionContext;
+  qualifying_available: boolean;
+  race_date: string;
+  days_until_race: number;
+}
+
+export type PredictionComparisonContext = PredictionContext | 'latest';
+
+export interface PredictionComparisonSummary {
+  mae: number;
+  rmse: number;
+  top10_accuracy: number;
+  podium_accuracy: number;
+  winner_correct: boolean;
+  average_position_error: number;
+}
+
+export interface PredictionDriverComparison {
+  driver: PredictionDriver;
+  team: PredictionTeam;
+  predicted_position: number | null;
+  predicted_rank: number;
+  actual_position: number | null;
+  actual_rank: number | null;
+  position_error: number | null;
+  predicted_top10: boolean;
+  actual_top10: boolean;
+  predicted_podium: boolean;
+  actual_podium: boolean;
+  points: number;
+  status: string;
+}
+
+export interface PredictionComparison {
+  race: Race;
+  context: PredictionContext;
+  model_version: string;
+  summary: PredictionComparisonSummary;
+  drivers: PredictionDriverComparison[];
+}
+
+export type ModelFeatureImportances = Record<string, Record<string, number>>;
+export type FeatureImportances = ModelFeatureImportances | Partial<Record<PredictionContext, ModelFeatureImportances>>;
 
 export interface ModelInfo {
   trained_at?: string;
@@ -177,7 +228,9 @@ export interface ModelInfo {
   test_season?: number;
   models?: Record<string, Record<string, string | number | null>>;
   feature_columns?: string[];
-  feature_importances?: FeatureImportances;
+  feature_importances?: ModelFeatureImportances;
+  pre_qualifying?: ModelInfo;
+  post_qualifying?: ModelInfo;
 }
 
 export interface SeasonStats {

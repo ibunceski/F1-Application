@@ -8,29 +8,40 @@ import { formatDate } from '../lib/formatters';
 
 type RaceView = 'predict' | 'analysis' | 'tyres';
 
-const viewConfig: Record<RaceView, { title: string; description: string; action: string; path: string }> = {
+const viewConfig: Record<RaceView, { title: string; description: string; action: string; path: string; requiresCompletedRace: boolean }> = {
   predict: {
     title: 'Select Race for Prediction',
     description: 'Choose a race weekend to generate or review ML predictions.',
     action: 'Open Predictor',
     path: 'predict',
+    requiresCompletedRace: false,
   },
   analysis: {
     title: 'Select Race for Analysis',
     description: 'Choose a completed race to inspect classification, lap pace, weather, and position changes.',
     action: 'Open Analysis',
     path: 'analysis',
+    requiresCompletedRace: true,
   },
   tyres: {
     title: 'Select Race for Tyre Strategy',
-    description: 'Choose a race to view stint timelines, compound pace, and pit stop patterns.',
+    description: 'Choose a completed race to view stint timelines, compound pace, and pit stop patterns.',
     action: 'Open Tyres',
     path: 'tyres',
+    requiresCompletedRace: true,
   },
 };
 
 function parseView(value: string | null): RaceView {
   return value === 'analysis' || value === 'tyres' || value === 'predict' ? value : 'predict';
+}
+
+function hasRaceHappened(raceDate: string) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(raceDate);
+  target.setHours(0, 0, 0, 0);
+  return target < today;
 }
 
 export function RaceSelector() {
@@ -64,22 +75,53 @@ export function RaceSelector() {
       </header>
 
       <div className="grid gap-3">
-        {races.data.map((race) => (
-          <Link
-            key={race.id}
-            to={`/seasons/${year}/races/${race.id}/${config.path}`}
-            className="card grid grid-cols-[72px_1fr_auto] items-center gap-4 p-4 transition hover:border-f1-red hover:bg-f1-elevated"
-          >
-            <span className="data-value">R{race.round_number}</span>
-            <div>
-              <p className="font-semibold text-f1-white">{race.race_name}</p>
-              <p className="text-sm text-f1-muted">
-                {race.circuit_name} / {formatDate(race.race_date)}
-              </p>
-            </div>
-            <span className="rounded bg-f1-red px-3 py-2 text-xs font-semibold text-white">{config.action}</span>
-          </Link>
-        ))}
+        {races.data.map((race) => {
+          const raceCompleted = hasRaceHappened(race.race_date);
+          const disabled = config.requiresCompletedRace && !raceCompleted;
+          const content = (
+            <>
+              <span className={`data-value ${disabled ? 'text-f1-muted' : ''}`}>R{race.round_number}</span>
+              <div>
+                <p className={`font-semibold ${disabled ? 'text-f1-muted' : 'text-f1-white'}`}>{race.race_name}</p>
+                <p className="text-sm text-f1-muted">
+                  {race.circuit_name} / {formatDate(race.race_date)}
+                </p>
+                {disabled ? <p className="mt-1 text-xs font-semibold text-podium-bronze">Race has not happened yet</p> : null}
+              </div>
+              <span
+                className={
+                  disabled
+                    ? 'rounded border border-f1-border px-3 py-2 text-xs font-semibold text-f1-muted'
+                    : 'rounded bg-f1-red px-3 py-2 text-xs font-semibold text-white'
+                }
+              >
+                {disabled ? 'Unavailable' : config.action}
+              </span>
+            </>
+          );
+
+          if (disabled) {
+            return (
+              <div
+                key={race.id}
+                aria-disabled="true"
+                className="card grid grid-cols-[72px_1fr_auto] items-center gap-4 p-4 opacity-60"
+              >
+                {content}
+              </div>
+            );
+          }
+
+          return (
+            <Link
+              key={race.id}
+              to={`/seasons/${year}/races/${race.id}/${config.path}`}
+              className="card grid grid-cols-[72px_1fr_auto] items-center gap-4 p-4 transition hover:border-f1-red hover:bg-f1-elevated"
+            >
+              {content}
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

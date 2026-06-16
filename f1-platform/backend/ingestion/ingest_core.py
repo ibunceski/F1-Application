@@ -91,6 +91,10 @@ def _driver_number(value: Any) -> int:
     return int(value)
 
 
+def _has_race_completed(race_date: date, today: date | None = None) -> bool:
+    return race_date < (today or datetime.now(UTC).date())
+
+
 def ingest_schedule(year: int, processed_seasons: set[int], processed_races: set[tuple[int, int]]) -> list[dict[str, Any]]:
     LOGGER.info("Fetching schedule for %s", year)
     schedule = fastf1.get_event_schedule(year, include_testing=False)
@@ -129,7 +133,7 @@ def ingest_schedule(year: int, processed_seasons: set[int], processed_races: set
                 upsert(db, Race, ["season_id", "round_number"], race_data)
                 processed_races.add((year, round_number))
 
-                if race_date <= datetime.now(UTC).date():
+                if _has_race_completed(race_date):
                     occurred_events.append(
                         {
                             "year": year,
@@ -138,7 +142,7 @@ def ingest_schedule(year: int, processed_seasons: set[int], processed_races: set
                         }
                     )
                 else:
-                    LOGGER.info("Skipping future race session load: %s Round %s", year, round_number)
+                    LOGGER.info("Skipping upcoming race session load: %s Round %s", year, round_number)
             except Exception:
                 LOGGER.exception("Failed to ingest schedule data for %s Round %s", year, round_number)
 

@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import type { FeatureImportances, ModelInfo } from '../../types';
+import type { ModelFeatureImportances, ModelInfo } from '../../types';
 import { formatDateTime, humanizeFeature, modelDefinitions } from './modelUtils';
 
 interface FeatureImportancePanelProps {
-  importances: FeatureImportances;
+  importances: ModelFeatureImportances;
   modelInfo?: ModelInfo;
 }
 
@@ -27,6 +27,12 @@ export function FeatureImportancePanel({ importances, modelInfo }: FeatureImport
     [activeKey, importances],
   );
   const maxImportance = Math.max(...rankedFeatures.map(([, value]) => value), 0);
+  const totalImportance = rankedFeatures.reduce((total, [, value]) => total + Math.max(value, 0), 0);
+
+  function displayPercent(value: number) {
+    if (!totalImportance) return '0.0%';
+    return `${((Math.max(value, 0) / totalImportance) * 100).toFixed(1)}%`;
+  }
 
   return (
     <section className="card p-5">
@@ -60,7 +66,7 @@ export function FeatureImportancePanel({ importances, modelInfo }: FeatureImport
                     style={{ width: `${maxImportance ? (value / maxImportance) * 100 : 0}%` }}
                   />
                 </div>
-                <span className="data-value text-right">{(value * 100).toFixed(1)}%</span>
+                <span className="data-value text-right">{displayPercent(value)}</span>
               </div>
             ))
           ) : (

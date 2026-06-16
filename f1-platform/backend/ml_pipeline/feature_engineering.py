@@ -4,7 +4,7 @@ import argparse
 import logging
 import sys
 from collections import defaultdict
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from statistics import mean, median
 from typing import Any
@@ -22,7 +22,7 @@ load_dotenv(ROOT_DIR / ".env")
 load_dotenv(PROJECT_DIR / ".env", override=False)
 
 from app.models.lap_time import LapTime
-from app.models.ml_feature import MLFeature
+from app.models.ml_feature import MLFeature, POST_QUALIFYING, PRE_QUALIFYING
 from app.models.qualifying_result import QualifyingResult
 from app.models.race import Race
 from app.models.race_result import RaceResult
@@ -48,8 +48,20 @@ NUMERIC_FEATURES = [
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build ML feature rows from ingested F1 data.")
-    parser.add_argument("--seasons", nargs="+", type=int, required=True)
+    parser.add_argument("--seasons", nargs="+", type=int)
+    parser.add_argument("--race-id", type=int)
+    parser.add_argument("--next-race", action="store_true")
     parser.add_argument("--round", type=int, dest="round_number")
+    parser.add_argument(
+        "--context",
+        "--feature-context",
+        dest="context",
+        choices=[PRE_QUALIFYING, POST_QUALIFYING, "all"],
+        default="all",
+        help="Prediction context to generate. Defaults to both contexts.",
+    )
+    parser.add_argument("--fallback-pre-qualifying", action="store_true")
+    parser.add_argument("--force", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
 
@@ -80,6 +92,44 @@ def query_races(db: Session, seasons: list[int], round_number: int | None) -> li
     if round_number is not None:
         statement = statement.where(Race.round_number == round_number)
     return list(db.execute(statement).all())
+
+
+def query_race_by_id(db: Session, race_id: int) -> list[tuple[Race, int]]:
+    row = db.execute(
+        select(Race, Season.year)
+        .join(Season, Race.season_id == Season.id)
+        .where(Race.id == race_id)
+    ).one_or_none()
+    return [row] if row is not None else []
+
+
+def query_next_race(db: Session, from_date: date) -> list[tuple[Race, int]]:
+    row = db.execute(
+        select(Race, Season.year)
+        .join(Season, Race.season_id == Season.id)
+        .where(Race.race_date >= from_date)
+        .order_by(Race.race_date.asc(), Race.round_number.asc())
+        .limit(1)
+    ).one_or_none()
+    return [row] if row is not None else []
+
+
+def validate_args(args: argparse.Namespace) -> None:
+    target_count = int(args.race_id is not None) + int(args.next_race) + int(bool(args.seasons))
+    if target_count != 1:
+        raise ValueError("Specify exactly one target selector: --seasons, --race-id, or --next-race.")
+    if args.round_number is not None and not args.seasons:
+        raise ValueError("--round can only be used with --seasons.")
+    if args.fallback_pre_qualifying and args.context not in {POST_QUALIFYING, "all"}:
+        raise ValueError("--fallback-pre-qualifying only applies to post_qualifying generation.")
+
+
+def query_target_races(db: Session, args: argparse.Namespace) -> list[tuple[Race, int]]:
+    if args.race_id is not None:
+        return query_race_by_id(db, args.race_id)
+    if args.next_race:
+        return query_next_race(db, date.today())
+    return query_races(db, args.seasons, args.round_number)
 
 
 def is_dnf(result: RaceResult) -> bool:
@@ -202,14 +252,13 @@ def circuit_history(db: Session, driver_id: int, current_race: Race) -> tuple[fl
     return float(avg_finish), dnf_rate
 
 
+def is_upcoming_race(race: Race, today: date | None = None) -> bool:
+    return race.race_date >= (today or date.today())
+
+
 def weather_features(db: Session, race_id: int) -> tuple[bool, float | None]:
     weather_rows = list(
-        db.execute(
-            select(WeatherData).where(
-                WeatherData.race_id == race_id,
-                WeatherData.session_type == "race",
-            )
-        )
+        db.execute(select(WeatherData).where(WeatherData.race_id == race_id))
         .scalars()
         .all()
     )
@@ -241,12 +290,56 @@ def season_medians(feature_history: dict[str, list[float]]) -> dict[str, float]:
     }
 
 
+def prior_feature_medians(db: Session, race: Race, feature_context: str) -> dict[str, float]:
+    rows = list(
+        db.execute(
+            select(MLFeature)
+            .join(Race, MLFeature.race_id == Race.id)
+            .where(
+                MLFeature.feature_context == feature_context,
+                Race.race_date < race.race_date,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    medians: dict[str, float] = {}
+    for feature_name in NUMERIC_FEATURES:
+        values = [
+            float(value)
+            for row in rows
+            if (value := getattr(row, feature_name)) is not None
+        ]
+        if values:
+            medians[feature_name] = float(median(values))
+    return medians
+
+
+def current_entry_medians(entries: list[dict[str, Any]]) -> dict[str, float]:
+    medians: dict[str, float] = {}
+    for feature_name in ("grid_position", "qualifying_position", "gap_to_pole_ms"):
+        values = [
+            float(value)
+            for entry in entries
+            if (value := entry.get(feature_name)) is not None
+        ]
+        if values:
+            medians[feature_name] = float(median(values))
+    return medians
+
+
 def fill_missing_numeric_features(
     feature_row: dict[str, Any],
     medians: dict[str, float],
 ) -> dict[str, Any]:
     filled = feature_row.copy()
+    preserve_null_features: set[str] = set()
+    if filled.get("feature_context") == PRE_QUALIFYING:
+        preserve_null_features = {"grid_position", "qualifying_position", "gap_to_pole_ms"}
+
     for feature_name in NUMERIC_FEATURES:
+        if feature_name in preserve_null_features:
+            continue
         if filled.get(feature_name) is None and feature_name in medians:
             filled[feature_name] = medians[feature_name]
     return filled
@@ -280,44 +373,179 @@ def qualifying_results_for_race(db: Session, race_id: int) -> list[QualifyingRes
     )
 
 
+def latest_prior_race_result_rows(db: Session, before_date: date) -> tuple[list[RaceResult], date | None]:
+    prior_race = db.execute(
+        select(RaceResult.race_id, Race.race_date)
+        .join(Race, RaceResult.race_id == Race.id)
+        .where(Race.race_date < before_date)
+        .order_by(Race.race_date.desc(), Race.round_number.desc())
+        .limit(1)
+    ).one_or_none()
+    if prior_race is None:
+        return [], None
+
+    rows = list(
+        db.execute(
+            select(RaceResult)
+            .where(RaceResult.race_id == prior_race.race_id)
+            .order_by(RaceResult.grid_position.asc().nulls_last(), RaceResult.driver_id.asc())
+        )
+        .scalars()
+        .all()
+    )
+    return rows, prior_race.race_date
+
+
+def latest_prior_team_id(db: Session, driver_id: int, before_date: date) -> int | None:
+    return db.execute(
+        select(RaceResult.team_id)
+        .join(Race, RaceResult.race_id == Race.id)
+        .where(RaceResult.driver_id == driver_id, Race.race_date < before_date)
+        .order_by(Race.race_date.desc(), Race.round_number.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def pre_qualifying_entries(db: Session, race: Race) -> list[dict[str, Any]]:
+    rows, data_cutoff_date = latest_prior_race_result_rows(db, race.race_date)
+    if not rows:
+        LOGGER.warning(
+            "No completed prior race results found before Race %s (%s); expected driver/team mapping is uncertain.",
+            race.id,
+            race.race_date,
+        )
+    entries: list[dict[str, Any]] = []
+    seen_driver_ids: set[int] = set()
+    for row in rows:
+        if row.driver_id in seen_driver_ids:
+            continue
+        entries.append(
+            {
+                "driver_id": row.driver_id,
+                "team_id": row.team_id,
+                "grid_position": None,
+                "qualifying_position": None,
+                "gap_to_pole_ms": None,
+                "data_cutoff_date": data_cutoff_date or race.race_date,
+            }
+        )
+        seen_driver_ids.add(row.driver_id)
+    return entries
+
+
+def post_qualifying_entries(db: Session, race: Race) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for qualifying_result in qualifying_results_for_race(db, race.id):
+        race_result = None if is_upcoming_race(race) else current_race_result(db, race.id, qualifying_result.driver_id)
+        grid_position = race_result.grid_position if race_result is not None else qualifying_result.position
+        team_id = (
+            race_result.team_id
+            if race_result is not None
+            else latest_prior_team_id(db, qualifying_result.driver_id, race.race_date)
+        )
+        if team_id is None:
+            LOGGER.warning(
+                "Skipping Race %s driver %s: no latest known team for post-qualifying features.",
+                race.id,
+                qualifying_result.driver_id,
+            )
+            continue
+
+        gap_to_pole_ms = qualifying_result.gap_to_pole_ms
+        if qualifying_result.position == 1:
+            gap_to_pole_ms = 0.0
+
+        entries.append(
+            {
+                "driver_id": qualifying_result.driver_id,
+                "team_id": team_id,
+                "grid_position": float(grid_position) if grid_position is not None else None,
+                "qualifying_position": (
+                    float(qualifying_result.position) if qualifying_result.position is not None else None
+                ),
+                "gap_to_pole_ms": gap_to_pole_ms,
+                "data_cutoff_date": race.race_date,
+            }
+        )
+    return entries
+
+
+def feature_entries_for_context(db: Session, race: Race, feature_context: str) -> list[dict[str, Any]]:
+    if feature_context == PRE_QUALIFYING:
+        return pre_qualifying_entries(db, race)
+    if feature_context == POST_QUALIFYING:
+        return post_qualifying_entries(db, race)
+    raise ValueError(f"Unsupported feature context: {feature_context}")
+
+
+def existing_feature_count(db: Session, race_id: int, feature_context: str) -> int:
+    return len(
+        db.execute(
+            select(MLFeature.id).where(
+                MLFeature.race_id == race_id,
+                MLFeature.feature_context == feature_context,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+def resolve_feature_context(
+    db: Session,
+    race: Race,
+    requested_context: str,
+    fallback_pre_qualifying: bool,
+) -> str:
+    if requested_context != POST_QUALIFYING:
+        return requested_context
+    if qualifying_results_for_race(db, race.id):
+        return POST_QUALIFYING
+    if fallback_pre_qualifying:
+        LOGGER.warning(
+            "Race %s has no qualifying results; falling back to %s features.",
+            race.id,
+            PRE_QUALIFYING,
+        )
+        return PRE_QUALIFYING
+    raise RuntimeError(
+        f"Race {race.id} has no qualifying results. "
+        "Run pre_qualifying or pass --fallback-pre-qualifying."
+    )
+
+
 def build_feature_row(
     db: Session,
     race: Race,
-    qualifying_result: QualifyingResult,
-    race_result: RaceResult,
+    entry: dict[str, Any],
+    feature_context: str,
 ) -> dict[str, Any]:
-    circuit_avg_finish, circuit_dnf_rate = circuit_history(db, qualifying_result.driver_id, race)
+    driver_id = entry["driver_id"]
+    team_id = entry["team_id"]
+    circuit_avg_finish, circuit_dnf_rate = circuit_history(db, driver_id, race)
     weather_is_wet, avg_track_temp_c = weather_features(db, race.id)
-    gap_to_pole_ms = qualifying_result.gap_to_pole_ms
-    if qualifying_result.position == 1:
-        gap_to_pole_ms = 0.0
 
     return {
         "race_id": race.id,
-        "driver_id": qualifying_result.driver_id,
-        "grid_position": float(race_result.grid_position) if race_result.grid_position is not None else None,
-        "qualifying_position": (
-            float(qualifying_result.position) if qualifying_result.position is not None else None
-        ),
-        "gap_to_pole_ms": gap_to_pole_ms,
-        "avg_race_pace_ms": avg_race_pace_ms(db, qualifying_result.driver_id, race.race_date),
-        "driver_recent_form": driver_recent_form(db, qualifying_result.driver_id, race.race_date),
-        "team_recent_form": team_recent_form(db, race_result.team_id, race.race_date),
+        "driver_id": driver_id,
+        "feature_context": feature_context,
+        "grid_position": entry["grid_position"],
+        "qualifying_position": entry["qualifying_position"],
+        "gap_to_pole_ms": entry["gap_to_pole_ms"],
+        "avg_race_pace_ms": avg_race_pace_ms(db, driver_id, race.race_date),
+        "driver_recent_form": driver_recent_form(db, driver_id, race.race_date),
+        "team_recent_form": team_recent_form(db, team_id, race.race_date),
         "circuit_history_avg_finish": circuit_avg_finish,
         "circuit_history_dnf_rate": circuit_dnf_rate,
-        "dnf_rate_recent": dnf_rate_recent(db, qualifying_result.driver_id, race.race_date),
+        "dnf_rate_recent": dnf_rate_recent(db, driver_id, race.race_date),
         "weather_is_wet": weather_is_wet,
         "avg_track_temp_c": avg_track_temp_c,
+        "uses_current_qualifying": feature_context == POST_QUALIFYING,
+        "data_cutoff_date": entry["data_cutoff_date"],
     }
 
 
-def should_skip_feature_row(feature_row: dict[str, Any], race: Race, driver_id: int) -> bool:
-    if feature_row["grid_position"] is None:
-        LOGGER.warning("Skipping Race %s driver %s: missing grid_position.", race.id, driver_id)
-        return True
-    if feature_row["qualifying_position"] is None:
-        LOGGER.warning("Skipping Race %s driver %s: missing qualifying_position.", race.id, driver_id)
-        return True
+def should_skip_feature_row(feature_row: dict[str, Any], race: Race, driver_id: int, feature_context: str) -> bool:
     return False
 
 
@@ -325,7 +553,9 @@ def process_race(
     db: Session,
     race: Race,
     year: int,
-    season_feature_history: dict[int, dict[str, list[float]]],
+    feature_context: str,
+    feature_history: dict[str, list[float]],
+    force: bool,
 ) -> dict[str, int]:
     counts = {
         "features": 0,
@@ -335,19 +565,35 @@ def process_race(
         "dnfs": 0,
     }
 
-    LOGGER.info("Processing %s Round %s: %s", year, race.round_number, race.race_name)
-    for qualifying_result in qualifying_results_for_race(db, race.id):
-        race_result = current_race_result(db, race.id, qualifying_result.driver_id)
-        if race_result is None:
-            LOGGER.warning(
-                "Skipping Race %s driver %s: missing RaceResult.",
-                race.id,
-                qualifying_result.driver_id,
-            )
-            continue
+    LOGGER.info(
+        "Processing %s Round %s %s features: %s",
+        year,
+        race.round_number,
+        feature_context,
+        race.race_name,
+    )
+    if not force and existing_feature_count(db, race.id, feature_context) > 0:
+        LOGGER.info(
+            "Skipping Race %s %s features because rows already exist. Use --force to regenerate.",
+            race.id,
+            feature_context,
+        )
+        return counts
 
-        feature_row = build_feature_row(db, race, qualifying_result, race_result)
-        if should_skip_feature_row(feature_row, race, qualifying_result.driver_id):
+    entries = feature_entries_for_context(db, race, feature_context)
+    if not entries:
+        LOGGER.warning(
+            "No %s feature entries for %s Round %s.",
+            feature_context,
+            year,
+            race.round_number,
+        )
+    entry_medians = current_entry_medians(entries)
+
+    for entry in entries:
+        driver_id = entry["driver_id"]
+        feature_row = build_feature_row(db, race, entry, feature_context)
+        if should_skip_feature_row(feature_row, race, driver_id, feature_context):
             continue
 
         if feature_row["avg_race_pace_ms"] is None:
@@ -355,19 +601,24 @@ def process_race(
             LOGGER.warning(
                 "Race %s driver %s has no prior avg_race_pace_ms history.",
                 race.id,
-                qualifying_result.driver_id,
+                driver_id,
             )
 
-        medians = season_medians(season_feature_history[year])
+        medians = prior_feature_medians(db, race, feature_context)
+        medians.update(entry_medians)
+        medians.update(season_medians(feature_history))
         feature_row = fill_missing_numeric_features(feature_row, medians)
-        upsert(db, MLFeature, ["race_id", "driver_id"], feature_row)
-        update_feature_history(season_feature_history[year], feature_row)
+        feature_row["generated_at"] = datetime.now(UTC)
+        upsert(db, MLFeature, ["race_id", "driver_id", "feature_context"], feature_row)
+        update_feature_history(feature_history, feature_row)
 
-        targets = target_metrics(race_result)
         counts["features"] += 1
-        counts["podiums"] += int(targets["finished_podium"])
-        counts["top10s"] += int(targets["finished_top10"])
-        counts["dnfs"] += int(targets["dnf"])
+        race_result = None if is_upcoming_race(race) else current_race_result(db, race.id, driver_id)
+        if race_result is not None:
+            targets = target_metrics(race_result)
+            counts["podiums"] += int(targets["finished_podium"])
+            counts["top10s"] += int(targets["finished_top10"])
+            counts["dnfs"] += int(targets["dnf"])
 
     return counts
 
@@ -375,42 +626,79 @@ def process_race(
 def main() -> None:
     args = parse_args()
     configure_logging(args.verbose)
+    validate_args(args)
 
-    season_counts: dict[int, dict[str, int]] = defaultdict(
+    contexts = (
+        [PRE_QUALIFYING, POST_QUALIFYING]
+        if args.context == "all"
+        else [args.context]
+    )
+    season_counts: dict[tuple[int, str], dict[str, int]] = defaultdict(
         lambda: {"features": 0, "missing_pace": 0, "podiums": 0, "top10s": 0, "dnfs": 0}
     )
-    season_feature_history: dict[int, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    season_feature_history: dict[tuple[int, str], dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
 
     with get_session() as db:
-        races = query_races(db, args.seasons, args.round_number)
+        races = query_target_races(db, args)
 
     if not races:
-        LOGGER.warning("No races found for seasons=%s round=%s", args.seasons, args.round_number)
+        LOGGER.warning(
+            "No races found for seasons=%s race_id=%s next_race=%s round=%s",
+            args.seasons,
+            args.race_id,
+            args.next_race,
+            args.round_number,
+        )
 
     for race, year in races:
-        try:
-            with get_session() as db:
-                race_counts = process_race(db, race, year, season_feature_history)
-        except Exception:
-            LOGGER.exception("Failed to process %s Round %s", year, race.round_number)
-            continue
+        processed_contexts: set[str] = set()
+        for requested_context in contexts:
+            try:
+                with get_session() as db:
+                    feature_context = resolve_feature_context(
+                        db,
+                        race,
+                        requested_context,
+                        args.fallback_pre_qualifying,
+                    )
+                    if feature_context in processed_contexts:
+                        LOGGER.info("Skipping duplicate %s context for Race %s.", feature_context, race.id)
+                        continue
+                    processed_contexts.add(feature_context)
+                    history_key = (year, feature_context)
+                    race_counts = process_race(
+                        db,
+                        race,
+                        year,
+                        feature_context,
+                        season_feature_history[history_key],
+                        args.force,
+                    )
+            except Exception:
+                LOGGER.exception("Failed to process %s Round %s context=%s", year, race.round_number, requested_context)
+                if args.context != "all":
+                    raise
+                continue
 
-        for key, value in race_counts.items():
-            season_counts[year][key] += value
+            for key, value in race_counts.items():
+                season_counts[(year, feature_context)][key] += value
 
-    for year in sorted(set(args.seasons) | set(season_counts.keys())):
-        counts = season_counts[year]
-        features = counts["features"]
-        missing_pace_pct = (counts["missing_pace"] / features * 100) if features else 0.0
-        message = (
-            f"Season {year}: {features} feature rows, "
-            f"{missing_pace_pct:.1f}% missing avg_race_pace_ms before median fill, "
-            f"{counts['podiums']} podium labels, "
-            f"{counts['top10s']} top10 labels, "
-            f"{counts['dnfs']} DNFs."
-        )
-        LOGGER.info(message)
-        print(message)
+    summary_years = sorted({year for _, year in races} | set(args.seasons or []))
+    summary_contexts = sorted(set(contexts) | {key[1] for key in season_counts})
+    for year in summary_years:
+        for feature_context in summary_contexts:
+            counts = season_counts[(year, feature_context)]
+            features = counts["features"]
+            missing_pace_pct = (counts["missing_pace"] / features * 100) if features else 0.0
+            message = (
+                f"Season {year} {feature_context}: {features} feature rows, "
+                f"{missing_pace_pct:.1f}% missing avg_race_pace_ms before median fill, "
+                f"{counts['podiums']} podium labels, "
+                f"{counts['top10s']} top10 labels, "
+                f"{counts['dnfs']} DNFs."
+            )
+            LOGGER.info(message)
+            print(message)
 
 
 if __name__ == "__main__":

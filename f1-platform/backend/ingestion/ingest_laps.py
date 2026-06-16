@@ -181,8 +181,8 @@ def _query_races(seasons: list[int], round_number: int | None) -> list[tuple[Rac
         return list(db.execute(statement).all())
 
 
-def _is_future_race(race_date: date) -> bool:
-    return race_date > datetime.now(UTC).date()
+def _is_upcoming_race(race_date: date) -> bool:
+    return race_date >= datetime.now(UTC).date()
 
 
 def _driver_map(db: Session) -> dict[int, int]:
@@ -397,8 +397,13 @@ def main() -> None:
             )
             continue
 
-        if _is_future_race(race.race_date):
-            LOGGER.warning("Skipping future race: %s Round %s (%s)", year, race.round_number, race.race_date)
+        if _is_upcoming_race(race.race_date):
+            LOGGER.warning(
+                "Skipping upcoming race without session data: %s Round %s (%s)",
+                year,
+                race.round_number,
+                race.race_date,
+            )
             continue
 
         try:

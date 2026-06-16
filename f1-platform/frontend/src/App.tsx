@@ -3,7 +3,9 @@ import { AppShell } from './components/layout/AppShell';
 import { useSeason } from './contexts/useSeason';
 import { DriverComparison } from './pages/DriverComparison/DriverComparison';
 import { ModelExplanation } from './pages/ModelExplanation/ModelExplanation';
+import { NextRacePrediction } from './pages/NextRacePrediction/NextRacePrediction';
 import { NotFound } from './pages/NotFound';
+import { PredictionComparison } from './pages/PredictionComparison/PredictionComparison';
 import { RaceAnalysis } from './pages/RaceAnalysis/RaceAnalysis';
 import { RacePredictor } from './pages/RacePredictor/RacePredictor';
 import { RaceSelector } from './pages/RaceSelector';
@@ -24,6 +26,8 @@ export default function App() {
           <Route path="/seasons/:year" element={<SeasonOverview />} />
           <Route path="/seasons/:year/races" element={<RaceSelector />} />
           <Route path="/seasons/:year/races/:raceId/predict" element={<RacePredictor />} />
+          <Route path="/predictions/next-race" element={<NextRacePrediction />} />
+          <Route path="/seasons/:year/races/:raceId/prediction-comparison" element={<PredictionComparison />} />
           <Route path="/seasons/:year/races/:raceId/analysis" element={<RaceAnalysis />} />
           <Route path="/seasons/:year/races/:raceId/tyres" element={<TyreStrategy />} />
           <Route path="/drivers/compare" element={<DriverComparison />} />

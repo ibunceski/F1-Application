@@ -18,6 +18,10 @@ function numberParam(value: string | null) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function defaultSeason() {
+  return Math.min(Math.max(new Date().getFullYear(), 2021), 2026);
+}
+
 function EmptyComparisonState() {
   return (
     <div className="card flex min-h-72 flex-col items-center justify-center gap-5 p-8 text-center">
@@ -49,7 +53,7 @@ function SkeletonPanels() {
 
 export function DriverComparison() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [season, setSeason] = useState(2024);
+  const [season, setSeason] = useState(defaultSeason);
   const [selectedRaceId, setSelectedRaceId] = useState<number | null>(() => numberParam(searchParams.get('raceId')));
   const [driver1Id, setDriver1Id] = useState<number | null>(() => numberParam(searchParams.get('driver1')));
   const [driver2Id, setDriver2Id] = useState<number | null>(() => numberParam(searchParams.get('driver2')));

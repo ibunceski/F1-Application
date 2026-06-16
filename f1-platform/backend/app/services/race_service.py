@@ -50,7 +50,10 @@ class RaceService(BaseService):
     async def get_next_race(self, from_date: date) -> Race | None:
         try:
             result = await self.db.execute(
-                select(Race).where(Race.race_date >= from_date).order_by(Race.race_date.asc()).limit(1)
+                select(Race)
+                .where(Race.race_date >= from_date)
+                .order_by(Race.race_date.asc(), Race.round_number.asc())
+                .limit(1)
             )
             return result.scalar_one_or_none()
         except Exception:

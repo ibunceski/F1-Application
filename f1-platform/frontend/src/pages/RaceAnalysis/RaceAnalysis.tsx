@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { BarChart3 } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
 import { getFastestLaps, getLapTimes, getPositionChanges, getWeather } from '../../api/analysis';
 import { getRaceById, getRaceQualifying, getRaceResults } from '../../api/races';
+import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { formatDate } from '../../lib/formatters';
@@ -43,17 +45,45 @@ function PodiumCard({ result, position }: { result?: RaceResult; position: 1 | 2
   );
 }
 
+function raceHasHappened(raceDate?: string) {
+  if (!raceDate) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(raceDate);
+  target.setHours(0, 0, 0, 0);
+  return target < today;
+}
+
 export function RaceAnalysis() {
-  const raceId = Number(useParams().raceId);
+  const params = useParams();
+  const year = Number(params.year || 2024);
+  const raceId = Number(params.raceId);
   const race = useQuery({ queryKey: ['race', raceId], queryFn: () => getRaceById(raceId) });
-  const results = useQuery({ queryKey: ['race-results', raceId], queryFn: () => getRaceResults(raceId) });
-  const qualifying = useQuery({ queryKey: ['qualifying', raceId], queryFn: () => getRaceQualifying(raceId) });
-  const positions = useQuery({ queryKey: ['position-changes', raceId], queryFn: () => getPositionChanges(raceId) });
-  const lapTimes = useQuery({ queryKey: ['lap-times', raceId], queryFn: () => getLapTimes(raceId) });
-  const weather = useQuery({ queryKey: ['weather', raceId], queryFn: () => getWeather(raceId) });
-  const fastestLaps = useQuery({ queryKey: ['fastest-laps', raceId], queryFn: () => getFastestLaps(raceId) });
+  const canLoadAnalysis = raceHasHappened(race.data?.race_date);
+  const results = useQuery({ queryKey: ['race-results', raceId], queryFn: () => getRaceResults(raceId), enabled: canLoadAnalysis });
+  const qualifying = useQuery({ queryKey: ['qualifying', raceId], queryFn: () => getRaceQualifying(raceId), enabled: canLoadAnalysis });
+  const positions = useQuery({ queryKey: ['position-changes', raceId], queryFn: () => getPositionChanges(raceId), enabled: canLoadAnalysis });
+  const lapTimes = useQuery({ queryKey: ['lap-times', raceId], queryFn: () => getLapTimes(raceId), enabled: canLoadAnalysis });
+  const weather = useQuery({ queryKey: ['weather', raceId], queryFn: () => getWeather(raceId), enabled: canLoadAnalysis });
+  const fastestLaps = useQuery({ queryKey: ['fastest-laps', raceId], queryFn: () => getFastestLaps(raceId), enabled: canLoadAnalysis });
 
   if (race.isLoading || results.isLoading) return <LoadingSpinner />;
+  if (race.data && !canLoadAnalysis) {
+    return (
+      <div className="space-y-6">
+        <header className="border-b border-f1-border pb-4">
+          <p className="font-mono text-xs font-semibold uppercase tracking-widest text-f1-red">
+            Round {race.data.round_number} / {race.data.race_name}
+          </p>
+          <h1 className="mt-2 text-3xl font-bold text-f1-white">{race.data.circuit_name} - Race Analysis</h1>
+        </header>
+        <EmptyState
+          title="Race has not happened yet"
+          description="Race analysis is available after final results, lap data, and weather data are ingested."
+        />
+      </div>
+    );
+  }
   if (race.isError || results.isError) return <ErrorState message="Race analysis could not be loaded." />;
 
   const raceResults = results.data || [];
@@ -65,7 +95,14 @@ export function RaceAnalysis() {
           Round {race.data?.round_number} · {race.data?.circuit_name}
         </p>
         <h1 className="mt-2 text-3xl font-bold text-f1-white">{race.data?.race_name} — Race Result</h1>
-        <p className="mt-1 text-sm text-f1-muted">
+        <Link
+          to={`/seasons/${year}/races/${raceId}/prediction-comparison`}
+          className="mt-3 inline-flex items-center justify-center gap-2 rounded-md border border-f1-border px-4 py-2 text-sm font-semibold text-f1-white hover:border-f1-red"
+        >
+          <BarChart3 className="h-4 w-4" />
+          View Prediction Accuracy
+        </Link>
+        <p className="mt-3 text-sm text-f1-muted">
           {race.data?.race_date ? formatDate(race.data.race_date) : '--'}
           {qualifying.data?.length ? ` · ${qualifying.data.length} qualifiers` : ''}
         </p>
