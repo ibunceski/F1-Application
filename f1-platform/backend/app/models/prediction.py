@@ -5,6 +5,7 @@ from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, UniqueConst
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.models.ml_feature import POST_QUALIFYING
 
 
 class Prediction(Base):
@@ -14,13 +15,17 @@ class Prediction(Base):
             "race_id",
             "driver_id",
             "model_version",
-            name="uq_predictions_race_driver_model_version",
+            "model_context",
+            name="uq_predictions_race_driver_model_context",
         ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     race_id: Mapped[int] = mapped_column(ForeignKey("races.id", ondelete="CASCADE"), nullable=False)
     driver_id: Mapped[int] = mapped_column(ForeignKey("drivers.id", ondelete="CASCADE"), nullable=False)
+    prediction_context: Mapped[str] = mapped_column(String, nullable=False, default=POST_QUALIFYING)
+    model_context: Mapped[str] = mapped_column(String, nullable=False, default=POST_QUALIFYING)
+    feature_context: Mapped[str] = mapped_column(String, nullable=False, default=POST_QUALIFYING)
     model_version: Mapped[str] = mapped_column(String, nullable=False)
     predicted_position: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     top10_probability: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -28,6 +33,11 @@ class Prediction(Base):
     winner_probability: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     predicted_position_gain: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     confidence_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
