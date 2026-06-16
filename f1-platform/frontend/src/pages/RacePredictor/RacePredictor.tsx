@@ -1,16 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Info } from 'lucide-react';
+import { BarChart3, Info } from 'lucide-react';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { getRaceById, getRaceQualifying, getRacesBySeason } from '../../api/races';
+import { getRaceById, getRaceQualifying, getRaceResults, getRacesBySeason } from '../../api/races';
 import { generatePredictions, getFeatureImportances, getPredictions } from '../../api/predictions';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
-import type { Prediction } from '../../types';
+import type { NextRacePredictionMode, Prediction, PredictionContext } from '../../types';
 import { FeatureImportanceChart } from './FeatureImportanceChart';
 import { GeneratePredictionPanel } from './GeneratePredictionPanel';
+import { PredictionContextSelector } from './PredictionContextSelector';
 import { PredictionCharts } from './PredictionCharts';
 import { PredictionTable } from './PredictionTable';
+
+function positionImportancesForContext(data: unknown, context: PredictionContext): Record<string, number> {
+  if (!data || typeof data !== 'object') return {};
+  const record = data as Record<string, Record<string, number> | number>;
+  const contextData = record[context];
+  if (contextData && typeof contextData === 'object' && 'position_model' in contextData) {
+    return (contextData as unknown as Record<string, Record<string, number>>).position_model || {};
+  }
+  const flatData = record.position_model;
+  return flatData && typeof flatData === 'object' ? flatData : {};
+}
 
 function formatHeaderDate(value?: string) {
   if (!value) return '--';
@@ -46,6 +59,7 @@ export function RacePredictor() {
   const year = Number(params.year || 2024);
   const raceId = params.raceId ? Number(params.raceId) : undefined;
   const queryClient = useQueryClient();
+  const [selectedContext, setSelectedContext] = useState<NextRacePredictionMode>('auto');
 
   const race = useQuery({
     queryKey: ['race', raceId],
@@ -57,10 +71,23 @@ export function RacePredictor() {
     queryFn: () => getRaceQualifying(raceId as number),
     enabled: Boolean(raceId),
   });
-  const predictions = useQuery({
-    queryKey: ['predictions', raceId],
-    queryFn: () => getPredictions(raceId as number),
+  const results = useQuery({
+    queryKey: ['race-results', raceId],
+    queryFn: () => getRaceResults(raceId as number),
     enabled: Boolean(raceId),
+    retry: 1,
+  });
+
+  const qualifyingAvailable = Boolean(qualifying.data?.length);
+  const effectiveContext: PredictionContext = selectedContext === 'auto'
+    ? qualifyingAvailable ? 'post_qualifying' : 'pre_qualifying'
+    : selectedContext;
+  const contextReady = selectedContext !== 'auto' || !qualifying.isLoading;
+
+  const predictions = useQuery({
+    queryKey: ['predictions', raceId, effectiveContext],
+    queryFn: () => getPredictions(raceId as number, effectiveContext),
+    enabled: Boolean(raceId) && contextReady,
     retry: 1,
   });
   const featureImportances = useQuery({
@@ -69,16 +96,26 @@ export function RacePredictor() {
   });
 
   const generate = useMutation<Prediction[], Error, boolean>({
-    mutationFn: (force) => generatePredictions(raceId as number, force),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['predictions', raceId] }),
+    mutationFn: (force) => generatePredictions(raceId as number, force, effectiveContext),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['predictions', raceId, effectiveContext] }),
   });
 
   if (!raceId) return <RaceSelectorFallback year={year} />;
   if (race.isLoading) return <LoadingSpinner />;
   if (race.isError) return <ErrorState message="Race information could not be loaded." />;
 
-  const predictionRows = predictions.data || generate.data || [];
-  const positionImportances = featureImportances.data?.position_model || {};
+  const predictionRows = predictions.data || generate.data?.filter((prediction) => prediction.model_context === effectiveContext) || [];
+  const positionImportances = positionImportancesForContext(featureImportances.data, effectiveContext);
+  const hasRaceResults = Boolean(results.data?.length);
+  const raceDate = race.data?.race_date ? new Date(race.data.race_date) : null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const isFutureRace = raceDate ? raceDate >= today : false;
+  const invalidPostQualifying = selectedContext === 'post_qualifying' && !qualifyingAvailable && !qualifying.isLoading;
+  const contextError = invalidPostQualifying
+    ? 'Qualifying data is not available for this race. Use pre-qualifying mode.'
+    : null;
+  const generateButtonLabel = isFutureRace ? 'Predict Upcoming Race' : 'Generate Prediction';
 
   return (
     <div className="space-y-6">
@@ -86,14 +123,48 @@ export function RacePredictor() {
         <p className="font-mono text-xs font-semibold uppercase tracking-widest text-f1-red">
           Round {race.data?.round_number} · {race.data?.circuit_name} · {formatHeaderDate(race.data?.race_date)}
         </p>
-        <h1 className="text-3xl font-bold text-f1-white">{race.data?.race_name} Prediction</h1>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <h1 className="text-3xl font-bold text-f1-white">{race.data?.race_name} Prediction</h1>
+          {hasRaceResults ? (
+            <Link
+              to={`/seasons/${year}/races/${raceId}/prediction-comparison`}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-f1-border px-4 py-2 text-sm font-semibold text-f1-white hover:border-f1-red"
+            >
+              <BarChart3 className="h-4 w-4" />
+              Compare Prediction vs Actual
+            </Link>
+          ) : null}
+        </div>
       </header>
 
-      <GeneratePredictionPanel predictions={predictionRows} mutation={generate} />
+      <PredictionContextSelector
+        selectedContext={selectedContext}
+        effectiveContext={effectiveContext}
+        isFutureRace={isFutureRace}
+        qualifyingAvailable={qualifyingAvailable}
+        resultsAvailable={hasRaceResults}
+        onChange={setSelectedContext}
+      />
+
+      <GeneratePredictionPanel
+        predictions={predictionRows}
+        mutation={generate}
+        modelContext={effectiveContext}
+        buttonLabel={generateButtonLabel}
+        disabled={Boolean(contextError)}
+        validationError={contextError}
+      />
 
       {predictions.isLoading ? <LoadingSpinner /> : null}
       {predictions.isError && !predictionRows.length ? (
-        <EmptyState title="No predictions" description="Generate model predictions once qualifying features are available." />
+        <EmptyState
+          title="No predictions"
+          description={
+            effectiveContext === 'post_qualifying'
+              ? 'Generate post-qualifying predictions once qualifying features are available.'
+              : 'Generate pre-qualifying predictions from previous race weekends.'
+          }
+        />
       ) : null}
 
       {predictionRows.length ? (

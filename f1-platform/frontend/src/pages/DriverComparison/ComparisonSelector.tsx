@@ -15,11 +15,16 @@ interface ComparisonSelectorProps {
   onReset: () => void;
 }
 
-const seasons = [2021, 2022, 2023, 2024];
+const seasons = [2021, 2022, 2023, 2024, 2025, 2026];
 
-function completedRaces(races: Race[]) {
+function startOfToday() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  return today;
+}
+
+function selectableRaces(season: number, races: Race[]) {
+  const today = startOfToday();
   return races.filter((race) => new Date(race.race_date) < today);
 }
 
@@ -41,7 +46,7 @@ export function ComparisonSelector({
   onCompare,
   onReset,
 }: ComparisonSelectorProps) {
-  const completed = completedRaces(races);
+  const selectable = selectableRaces(season, races);
   const canCompare = Boolean(selectedRaceId && driver1Id && driver2Id);
 
   return (
@@ -63,7 +68,7 @@ export function ComparisonSelector({
             className={selectClass()}
           >
             <option value="">Select race</option>
-            {completed.map((race) => (
+            {selectable.map((race) => (
               <option key={race.id} value={race.id}>
                 R{race.round_number} - {race.race_name}
               </option>

@@ -28,6 +28,7 @@ function scatterData(predictions: Prediction[]) {
     predicted: prediction.predicted_position ?? 20,
     winnerProbability: prediction.winner_probability ?? 0,
     gain: (prediction.predicted_position_gain ?? 0) > 0,
+    modelContext: contextLabel(prediction.model_context),
   }));
 }
 
@@ -39,7 +40,14 @@ function podiumData(predictions: Prediction[]) {
       driver: prediction.driver.abbreviation,
       team: prediction.team.name,
       probability: prediction.podium_probability ?? 0,
+      modelContext: contextLabel(prediction.model_context),
     }));
+}
+
+function contextLabel(value?: string) {
+  if (value === 'post_qualifying') return 'Post-Qualifying';
+  if (value === 'pre_qualifying') return 'Pre-Qualifying';
+  return 'Model context unavailable';
 }
 
 export function PredictionCharts({ predictions }: PredictionChartsProps) {
@@ -62,7 +70,10 @@ export function PredictionCharts({ predictions }: PredictionChartsProps) {
                 cursor={{ strokeDasharray: '3 3' }}
                 contentStyle={{ background: '#111118', border: '1px solid #2A2A3D', borderRadius: 8 }}
                 formatter={(value, name) => [Number(value).toFixed(1), name]}
-                labelFormatter={(_, payload) => payload?.[0]?.payload?.driverName || ''}
+                labelFormatter={(_, payload) => {
+                  const row = payload?.[0]?.payload;
+                  return row ? `${row.driverName} - ${row.modelContext}` : '';
+                }}
               />
               <Scatter data={scatter}>
                 {scatter.map((entry) => (
@@ -85,6 +96,10 @@ export function PredictionCharts({ predictions }: PredictionChartsProps) {
               <Tooltip
                 contentStyle={{ background: '#111118', border: '1px solid #2A2A3D', borderRadius: 8 }}
                 formatter={(value) => [`${(Number(value) * 100).toFixed(1)}%`, 'Podium']}
+                labelFormatter={(_, payload) => {
+                  const row = payload?.[0]?.payload;
+                  return row ? `${row.driver} - ${row.modelContext}` : '';
+                }}
               />
               <Bar dataKey="probability" radius={[0, 4, 4, 0]}>
                 {podium.map((entry) => (

@@ -11,7 +11,8 @@ type SortKey =
   | 'predicted_position_gain'
   | 'podium_probability'
   | 'top10_probability'
-  | 'winner_probability';
+  | 'winner_probability'
+  | 'model_context';
 
 interface PredictionTableProps {
   predictions: Prediction[];
@@ -47,6 +48,12 @@ function rowClass(rank: number, predictedPosition: number | null) {
   return 'border-l-2 border-transparent';
 }
 
+function contextLabel(value?: string) {
+  if (value === 'post_qualifying') return 'Post-Qualifying';
+  if (value === 'pre_qualifying') return 'Pre-Qualifying';
+  return '--';
+}
+
 export function PredictionTable({ predictions, qualifyingResults }: PredictionTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('predicted_rank');
   const [direction, setDirection] = useState<'asc' | 'desc'>('asc');
@@ -67,6 +74,7 @@ export function PredictionTable({ predictions, qualifyingResults }: PredictionTa
         podium_probability: [a.podium_probability ?? 0, b.podium_probability ?? 0],
         top10_probability: [a.top10_probability ?? 0, b.top10_probability ?? 0],
         winner_probability: [a.winner_probability ?? 0, b.winner_probability ?? 0],
+        model_context: [a.model_context ?? '', b.model_context ?? ''],
       };
       const [left, right] = values[sortKey];
       const comparison = typeof left === 'string' ? left.localeCompare(String(right)) : Number(left) - Number(right);
@@ -93,12 +101,13 @@ export function PredictionTable({ predictions, qualifyingResults }: PredictionTa
     ['podium_probability', 'Podium %'],
     ['top10_probability', 'Top 10 %'],
     ['winner_probability', 'Win %'],
+    ['model_context', 'Model Context'],
   ];
 
   return (
     <section className="card overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1040px] text-left text-sm">
+        <table className="w-full min-w-[1160px] text-left text-sm">
           <thead className="bg-f1-elevated text-xs uppercase text-f1-muted">
             <tr>
               {headers.map(([key, label]) => (
@@ -136,6 +145,11 @@ export function PredictionTable({ predictions, qualifyingResults }: PredictionTa
                   <td className="px-4 py-4"><ProgressBar value={prediction.podium_probability} /></td>
                   <td className="px-4 py-4"><ProgressBar value={prediction.top10_probability} /></td>
                   <td className="px-4 py-4"><ProgressBar value={prediction.winner_probability} /></td>
+                  <td className="px-4 py-4">
+                    <span className="rounded-full border border-f1-border px-3 py-1 text-xs font-semibold text-f1-text">
+                      {contextLabel(prediction.model_context)}
+                    </span>
+                  </td>
                 </tr>
               );
             })}

@@ -1,11 +1,13 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
+import { CalendarClock, Zap } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { getDriversBySeason } from '../../api/drivers';
-import { getRaceResults, getRacesBySeason } from '../../api/races';
+import { getNextRace, getRaceResults, getRacesBySeason } from '../../api/races';
 import { getSeasonStats } from '../../api/seasons';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import type { ApiError } from '../../lib/api';
 import type { Race, RaceResult } from '../../types';
 import { RaceCalendar } from './RaceCalendar';
 import { SeasonStandings } from './SeasonStandings';
@@ -37,6 +39,86 @@ function winner(results: RaceResult[]) {
 
 function fastestLap(results: RaceResult[]) {
   return results.find((result) => result.fastest_lap);
+}
+
+function formatRaceDate(value: string) {
+  return new Intl.DateTimeFormat('en', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(value));
+}
+
+function daysUntil(date: string) {
+  const today = startOfToday();
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  return Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+}
+
+function countdownLabel(days: number) {
+  if (days === 0) return 'Race day';
+  if (days === 1) return 'Tomorrow';
+  return `${days} days`;
+}
+
+function isNotFound(error: unknown) {
+  return (error as ApiError | undefined)?.status === 404;
+}
+
+function NextRaceCard({ race, isLoading, isMissing }: { race?: Race; isLoading: boolean; isMissing: boolean }) {
+  if (isLoading) {
+    return (
+      <section className="card-elevated p-5">
+        <div className="h-4 w-24 animate-pulse rounded bg-f1-elevated" />
+        <div className="mt-4 h-8 w-64 animate-pulse rounded bg-f1-elevated" />
+        <div className="mt-3 h-4 w-48 animate-pulse rounded bg-f1-elevated" />
+      </section>
+    );
+  }
+
+  if (isMissing || !race) {
+    return (
+      <section className="card-elevated p-5">
+        <p className="section-label">Next Race</p>
+        <h2 className="mt-2 text-2xl font-bold text-f1-white">No upcoming race found</h2>
+        <p className="mt-2 text-sm text-f1-muted">Ingest the latest race calendar to unlock next race predictions.</p>
+      </section>
+    );
+  }
+
+  const countdown = daysUntil(race.race_date);
+
+  return (
+    <section className="card-elevated overflow-hidden p-5">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-f1-red">
+            <CalendarClock className="h-4 w-4" />
+            <p className="section-label text-f1-red">Next Race</p>
+          </div>
+          <h2 className="mt-3 text-3xl font-bold text-f1-white">{race.race_name}</h2>
+          <p className="mt-2 text-sm text-f1-muted">
+            {race.circuit_name}, {race.circuit_country} - {formatRaceDate(race.race_date)}
+          </p>
+        </div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="rounded-md border border-f1-border bg-f1-surface px-4 py-3">
+            <p className="section-label">Countdown</p>
+            <p className="data-value mt-1 text-2xl text-f1-red">{countdownLabel(countdown)}</p>
+          </div>
+          <Link
+            to="/predictions/next-race"
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-f1-red px-5 py-3 text-sm font-bold text-white hover:bg-red-700"
+          >
+            <Zap className="h-4 w-4" />
+            Predict Next Race
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function QuickRaceCards({ year, races, resultsByRace }: { year: number; races: Race[]; resultsByRace: ResultsByRace }) {
@@ -104,6 +186,7 @@ export function SeasonOverview() {
   const season = useQuery({ queryKey: ['season', year], queryFn: () => getSeasonStats(year) });
   const races = useQuery({ queryKey: ['races', year], queryFn: () => getRacesBySeason(year) });
   const drivers = useQuery({ queryKey: ['drivers', year], queryFn: () => getDriversBySeason(year) });
+  const nextRace = useQuery({ queryKey: ['next-race'], queryFn: getNextRace, retry: 1 });
   const completed = completedRaces(races.data || []);
   const resultQueries = useQueries({
     queries: completed.map((race) => ({
@@ -130,6 +213,12 @@ export function SeasonOverview() {
       </header>
 
       {season.isError || races.isError || drivers.isError ? <ErrorState message="Some season data could not be loaded." /> : null}
+
+      <NextRaceCard
+        race={nextRace.data}
+        isLoading={nextRace.isLoading}
+        isMissing={nextRace.isError && isNotFound(nextRace.error)}
+      />
 
       <SeasonStats
         season={season.data?.season}

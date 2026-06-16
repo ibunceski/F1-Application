@@ -1,4 +1,4 @@
-import type { FeatureImportances, ModelInfo } from '../../types';
+import type { FeatureImportances, ModelFeatureImportances, ModelInfo, PredictionContext } from '../../types';
 
 export interface ModelMetricMap {
   [key: string]: string | number | null | undefined;
@@ -48,6 +48,11 @@ export const modelDefinitions: ModelDefinition[] = [
   },
 ];
 
+export const modelContexts: { key: PredictionContext; label: string }[] = [
+  { key: 'post_qualifying', label: 'Post-Qualifying Models' },
+  { key: 'pre_qualifying', label: 'Pre-Qualifying Models' },
+];
+
 export const featureNameMap: Record<string, string> = {
   grid_position: 'Grid Position',
   qualifying_position: 'Qualifying Position',
@@ -75,8 +80,34 @@ export function getAlgorithm(info: ModelInfo | undefined, definition: ModelDefin
   return String(metrics.algorithm || definition.fallbackAlgorithm);
 }
 
-export function mergeImportances(info: ModelInfo | undefined, importances: FeatureImportances | undefined): FeatureImportances {
-  return importances && Object.keys(importances).length ? importances : info?.feature_importances || {};
+function hasContextData(value: ModelInfo | FeatureImportances | undefined, context: PredictionContext) {
+  return Boolean(value && typeof value === 'object' && context in value);
+}
+
+export function availableModelContexts(info: ModelInfo | undefined, importances: FeatureImportances | undefined): PredictionContext[] {
+  const available = modelContexts
+    .map((context) => context.key)
+    .filter((context) => hasContextData(info, context) || hasContextData(importances, context));
+  return available.length ? available : ['post_qualifying'];
+}
+
+export function selectModelInfo(info: ModelInfo | undefined, context: PredictionContext): ModelInfo | undefined {
+  if (!info) return undefined;
+  return info[context] || info;
+}
+
+export function selectImportances(
+  info: ModelInfo | undefined,
+  importances: FeatureImportances | undefined,
+  context: PredictionContext,
+): ModelFeatureImportances {
+  if (importances && context in importances) {
+    return (importances as Record<PredictionContext, ModelFeatureImportances>)[context] || {};
+  }
+  if (importances && Object.keys(importances).some((key) => modelDefinitions.some((definition) => definition.key === key))) {
+    return importances as ModelFeatureImportances;
+  }
+  return selectModelInfo(info, context)?.feature_importances || {};
 }
 
 export function formatDateTime(value?: string) {

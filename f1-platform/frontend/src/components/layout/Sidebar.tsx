@@ -1,13 +1,13 @@
-import { BarChart2, Brain, CircleDot, LayoutDashboard, Target, Users } from 'lucide-react';
+import { BarChart2, Brain, CalendarClock, CircleDot, LayoutDashboard, Target, Users } from 'lucide-react';
 import { useEffect } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useSeason } from '../../contexts/useSeason';
 
-const seasons = [2021, 2022, 2023, 2024];
+const seasons = [2021, 2022, 2023, 2024, 2025, 2026];
 
 function seasonFromParams(value?: string) {
   const parsed = Number(value);
-  return seasons.includes(parsed) ? parsed : 2024;
+  return seasons.includes(parsed) ? parsed : seasons[seasons.length - 1];
 }
 
 export function Sidebar() {
@@ -25,6 +25,7 @@ export function Sidebar() {
 
   const items = [
     { label: 'Dashboard', icon: LayoutDashboard, to: `/seasons/${currentYear}` },
+    { label: 'Next Race', icon: CalendarClock, to: '/predictions/next-race' },
     { label: 'Race Predictor', icon: Target, to: `/seasons/${currentYear}/races?view=predict` },
     { label: 'Race Analysis', icon: BarChart2, to: `/seasons/${currentYear}/races?view=analysis` },
     { label: 'Tyre Strategy', icon: CircleDot, to: `/seasons/${currentYear}/races?view=tyres` },

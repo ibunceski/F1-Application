@@ -1,20 +1,43 @@
 import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
 import { getFeatureImportances, getModelInfo } from '../../api/predictions';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import type { PredictionContext } from '../../types';
 import { FeatureImportancePanel } from './FeatureImportancePanel';
 import { ModelCard } from './ModelCard';
 import { ModelPipelineDiagram } from './ModelPipelineDiagram';
-import { getAlgorithm, getModelMetrics, mergeImportances, modelDefinitions } from './modelUtils';
+import {
+  availableModelContexts,
+  getAlgorithm,
+  getModelMetrics,
+  modelContexts,
+  modelDefinitions,
+  selectImportances,
+  selectModelInfo,
+} from './modelUtils';
 
 export function ModelExplanation() {
   const info = useQuery({ queryKey: ['model-info'], queryFn: getModelInfo });
   const importances = useQuery({ queryKey: ['feature-importances'], queryFn: getFeatureImportances });
+  const [activeContext, setActiveContext] = useState<PredictionContext>('post_qualifying');
+
+  const availableContexts = useMemo(
+    () => availableModelContexts(info.data, importances.data),
+    [importances.data, info.data],
+  );
+
+  useEffect(() => {
+    if (!availableContexts.includes(activeContext)) {
+      setActiveContext(availableContexts[0]);
+    }
+  }, [activeContext, availableContexts]);
 
   if (info.isLoading || importances.isLoading) return <LoadingSpinner />;
   if (info.isError || importances.isError) return <ErrorState message="Model metadata could not be loaded." />;
 
-  const featureImportances = mergeImportances(info.data, importances.data);
+  const activeInfo = selectModelInfo(info.data, activeContext);
+  const featureImportances = selectImportances(info.data, importances.data, activeContext);
 
   return (
     <div className="space-y-8">
@@ -29,6 +52,30 @@ export function ModelExplanation() {
 
       <ModelPipelineDiagram />
 
+      <section className="card-elevated p-4">
+        <p className="section-label mb-3">Model Family</p>
+        <div className="flex flex-wrap gap-2">
+          {modelContexts.map((context) => {
+            const disabled = !availableContexts.includes(context.key);
+            return (
+              <button
+                key={context.key}
+                type="button"
+                disabled={disabled}
+                onClick={() => setActiveContext(context.key)}
+                className={`rounded border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  activeContext === context.key
+                    ? 'border-f1-red bg-f1-elevated text-f1-white'
+                    : 'border-f1-border text-f1-muted hover:text-f1-white'
+                }`}
+              >
+                {context.label}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       <section className="space-y-4">
         <div className="flex items-end justify-between border-b border-f1-border pb-3">
           <div>
@@ -41,10 +88,10 @@ export function ModelExplanation() {
             <ModelCard
               key={definition.key}
               modelName={definition.label}
-              algorithm={getAlgorithm(info.data, definition)}
+              algorithm={getAlgorithm(activeInfo, definition)}
               targetVariable={definition.target}
               kind={definition.kind}
-              metrics={getModelMetrics(info.data, definition.key)}
+              metrics={getModelMetrics(activeInfo, definition.key)}
             />
           ))}
         </div>
@@ -55,7 +102,7 @@ export function ModelExplanation() {
           <p className="section-label">Feature Importance</p>
           <h2 className="mt-1 text-xl font-bold text-f1-white">Signals That Move Predictions</h2>
         </div>
-        <FeatureImportancePanel importances={featureImportances} modelInfo={info.data} />
+        <FeatureImportancePanel importances={featureImportances} modelInfo={activeInfo} />
       </section>
 
       <section className="rounded-lg border border-amber-400/40 bg-amber-400/5 p-5">
