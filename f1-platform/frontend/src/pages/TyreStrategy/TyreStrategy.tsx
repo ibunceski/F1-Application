@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { getTyreStrategy } from '../../api/analysis';
 import { getRaceById, getRaceResults } from '../../api/races';
+import { CountryFlag } from '../../components/ui/CountryFlag';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
@@ -72,7 +73,10 @@ export function TyreStrategy() {
           <p className="font-mono text-xs font-semibold uppercase tracking-widest text-f1-red">
             Round {race.data.round_number} / {race.data.race_name}
           </p>
-          <h1 className="mt-2 text-3xl font-bold text-f1-white">{race.data.circuit_name} - Tyre Strategy</h1>
+          <div className="mt-2 flex min-w-0 items-center gap-3">
+            <CountryFlag country={race.data.circuit_country} className="text-2xl" />
+            <h1 className="truncate text-3xl font-bold text-f1-white">{race.data.circuit_name} - Tyre Strategy</h1>
+          </div>
         </header>
         <EmptyState
           title="Race has not happened yet"
@@ -100,7 +104,10 @@ export function TyreStrategy() {
         <p className="font-mono text-xs font-semibold uppercase tracking-widest text-f1-red">
           Round {race.data?.round_number} / {race.data?.race_name}
         </p>
-        <h1 className="mt-2 text-3xl font-bold text-f1-white">{race.data?.circuit_name} - Tyre Strategy</h1>
+        <div className="mt-2 flex min-w-0 items-center gap-3">
+          <CountryFlag country={race.data?.circuit_country} className="text-2xl" />
+          <h1 className="truncate text-3xl font-bold text-f1-white">{race.data?.circuit_name} - Tyre Strategy</h1>
+        </div>
       </header>
 
       <StrategyLegend strategies={strategies} />

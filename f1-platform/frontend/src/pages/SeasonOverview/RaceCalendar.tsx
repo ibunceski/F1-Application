@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { CountryFlag } from '../../components/ui/CountryFlag';
 import type { Race, RaceResult } from '../../types';
 
 type ResultsByRace = Record<number, RaceResult[]>;
@@ -104,6 +105,7 @@ export function RaceCalendar({ year, races, resultsByRace, selectedRaceId, isLoa
                 </span>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
+                    <CountryFlag country={race.circuit_country} />
                     <p className="truncate text-sm font-semibold text-f1-white">{race.race_name}</p>
                     {statusBadge(isCompleted, isNext)}
                   </div>

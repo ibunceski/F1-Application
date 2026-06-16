@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import { getDriversBySeason } from '../../api/drivers';
 import { getNextRace, getRaceResults, getRacesBySeason } from '../../api/races';
 import { getSeasonStats } from '../../api/seasons';
+import { CountryFlag } from '../../components/ui/CountryFlag';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
@@ -98,7 +99,10 @@ function NextRaceCard({ race, isLoading, isMissing }: { race?: Race; isLoading: 
             <CalendarClock className="h-4 w-4" />
             <p className="section-label text-f1-red">Next Race</p>
           </div>
-          <h2 className="mt-3 text-3xl font-bold text-f1-white">{race.race_name}</h2>
+          <div className="mt-3 flex min-w-0 items-center gap-3">
+            <CountryFlag country={race.circuit_country} className="text-2xl" />
+            <h2 className="truncate text-3xl font-bold text-f1-white">{race.race_name}</h2>
+          </div>
           <p className="mt-2 text-sm text-f1-muted">
             {race.circuit_name}, {race.circuit_country} - {formatRaceDate(race.race_date)}
           </p>
@@ -161,7 +165,10 @@ function QuickRaceCards({ year, races, resultsByRace }: { year: number; races: R
               </div>
               <div className="relative z-10">
                 <p className="section-label">Round {race.round_number}</p>
-                <h3 className="mt-2 font-semibold text-f1-white">{race.race_name}</h3>
+                <div className="mt-2 flex min-w-0 items-center gap-2">
+                  <CountryFlag country={race.circuit_country} />
+                  <h3 className="truncate font-semibold text-f1-white">{race.race_name}</h3>
+                </div>
                 <div className="mt-4 space-y-2 text-sm">
                   <p className="text-f1-muted">Winner <span className="text-f1-text">{raceWinner ? `${raceWinner.driver.full_name} · ${raceWinner.team.short_name}` : '--'}</span></p>
                   <p className="text-f1-muted">Fastest Lap <span className="text-f1-text">{raceFastestLap?.driver.full_name || '--'}</span></p>

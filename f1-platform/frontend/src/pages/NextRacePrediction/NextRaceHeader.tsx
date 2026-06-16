@@ -1,4 +1,5 @@
 import { CalendarClock, Flag } from 'lucide-react';
+import { CountryFlag } from '../../components/ui/CountryFlag';
 import type { Race } from '../../types';
 
 interface NextRaceHeaderProps {
@@ -29,7 +30,10 @@ export function NextRaceHeader({ race, daysUntilRace }: NextRaceHeaderProps) {
           <p className="font-mono text-xs font-semibold uppercase tracking-widest text-f1-red">
             Round {race.round_number} - {formatRaceDate(race.race_date)}
           </p>
-          <h1 className="mt-2 text-3xl font-bold text-f1-white">{race.race_name}</h1>
+          <div className="mt-2 flex min-w-0 items-center gap-3">
+            <CountryFlag country={race.circuit_country} className="text-2xl" />
+            <h1 className="truncate text-3xl font-bold text-f1-white">{race.race_name}</h1>
+          </div>
           <p className="mt-2 text-sm text-f1-muted">
             {race.circuit_name}, {race.circuit_location}, {race.circuit_country}
           </p>

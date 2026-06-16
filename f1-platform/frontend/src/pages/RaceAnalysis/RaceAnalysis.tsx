@@ -3,6 +3,7 @@ import { BarChart3 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { getFastestLaps, getLapTimes, getPositionChanges, getWeather } from '../../api/analysis';
 import { getRaceById, getRaceQualifying, getRaceResults } from '../../api/races';
+import { CountryFlag } from '../../components/ui/CountryFlag';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
@@ -75,7 +76,10 @@ export function RaceAnalysis() {
           <p className="font-mono text-xs font-semibold uppercase tracking-widest text-f1-red">
             Round {race.data.round_number} / {race.data.race_name}
           </p>
-          <h1 className="mt-2 text-3xl font-bold text-f1-white">{race.data.circuit_name} - Race Analysis</h1>
+          <div className="mt-2 flex min-w-0 items-center gap-3">
+            <CountryFlag country={race.data.circuit_country} className="text-2xl" />
+            <h1 className="truncate text-3xl font-bold text-f1-white">{race.data.circuit_name} - Race Analysis</h1>
+          </div>
         </header>
         <EmptyState
           title="Race has not happened yet"
@@ -94,7 +98,10 @@ export function RaceAnalysis() {
         <p className="font-mono text-xs font-semibold uppercase tracking-widest text-f1-red">
           Round {race.data?.round_number} · {race.data?.circuit_name}
         </p>
-        <h1 className="mt-2 text-3xl font-bold text-f1-white">{race.data?.race_name} — Race Result</h1>
+        <div className="mt-2 flex min-w-0 items-center gap-3">
+          <CountryFlag country={race.data?.circuit_country} className="text-2xl" />
+          <h1 className="truncate text-3xl font-bold text-f1-white">{race.data?.race_name} — Race Result</h1>
+        </div>
         <Link
           to={`/seasons/${year}/races/${raceId}/prediction-comparison`}
           className="mt-3 inline-flex items-center justify-center gap-2 rounded-md border border-f1-border px-4 py-2 text-sm font-semibold text-f1-white hover:border-f1-red"

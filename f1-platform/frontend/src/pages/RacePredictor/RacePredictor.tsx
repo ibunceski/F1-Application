@@ -6,6 +6,7 @@ import { getRaceById, getRaceQualifying, getRaceResults, getRacesBySeason } from
 import { generatePredictions, getFeatureImportances, getPredictions } from '../../api/predictions';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
+import { CountryFlag } from '../../components/ui/CountryFlag';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import type { NextRacePredictionMode, Prediction, PredictionContext } from '../../types';
 import { FeatureImportanceChart } from './FeatureImportanceChart';
@@ -43,8 +44,11 @@ function RaceSelectorFallback({ year }: { year: number }) {
           <Link key={race.id} to={`/seasons/${year}/races/${race.id}/predict`} className="card grid grid-cols-[64px_1fr_auto] items-center gap-4 p-4 hover:border-f1-red">
             <span className="data-value">R{race.round_number}</span>
             <div>
-              <p className="font-semibold text-f1-white">{race.race_name}</p>
-              <p className="text-sm text-f1-muted">{race.circuit_name}</p>
+              <div className="flex min-w-0 items-center gap-2">
+                <CountryFlag country={race.circuit_country} />
+                <p className="truncate font-semibold text-f1-white">{race.race_name}</p>
+              </div>
+              <p className="text-sm text-f1-muted">{race.circuit_name}, {race.circuit_country}</p>
             </div>
             <span className="rounded border border-f1-border px-3 py-1 text-xs">Predict</span>
           </Link>
@@ -124,7 +128,10 @@ export function RacePredictor() {
           Round {race.data?.round_number} · {race.data?.circuit_name} · {formatHeaderDate(race.data?.race_date)}
         </p>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <h1 className="text-3xl font-bold text-f1-white">{race.data?.race_name} Prediction</h1>
+          <div className="flex min-w-0 items-center gap-3">
+            <CountryFlag country={race.data?.circuit_country} className="text-2xl" />
+            <h1 className="truncate text-3xl font-bold text-f1-white">{race.data?.race_name} Prediction</h1>
+          </div>
           {hasRaceResults ? (
             <Link
               to={`/seasons/${year}/races/${raceId}/prediction-comparison`}
