@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { getRacesBySeason } from '../api/races';
+import { CountryFlag } from '../components/ui/CountryFlag';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -82,9 +83,12 @@ export function RaceSelector() {
             <>
               <span className={`data-value ${disabled ? 'text-f1-muted' : ''}`}>R{race.round_number}</span>
               <div>
-                <p className={`font-semibold ${disabled ? 'text-f1-muted' : 'text-f1-white'}`}>{race.race_name}</p>
+                <div className="flex min-w-0 items-center gap-2">
+                  <CountryFlag country={race.circuit_country} />
+                  <p className={`truncate font-semibold ${disabled ? 'text-f1-muted' : 'text-f1-white'}`}>{race.race_name}</p>
+                </div>
                 <p className="text-sm text-f1-muted">
-                  {race.circuit_name} / {formatDate(race.race_date)}
+                  {race.circuit_name}, {race.circuit_country} / {formatDate(race.race_date)}
                 </p>
                 {disabled ? <p className="mt-1 text-xs font-semibold text-podium-bronze">Race has not happened yet</p> : null}
               </div>

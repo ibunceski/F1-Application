@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { getNextRace } from '../../api/races';
+import { CountryFlag } from '../ui/CountryFlag';
 
 function breadcrumb(pathname: string, year?: string) {
   if (pathname.includes('/predict')) return `${year} Season > Prediction`;
@@ -36,7 +37,8 @@ export function TopBar() {
             Live
           </Link>
         ) : nextRace.data ? (
-          <Link to="/predictions/next-race" className="text-sm text-f1-muted hover:text-f1-white">
+          <Link to="/predictions/next-race" className="inline-flex items-center gap-1.5 text-sm text-f1-muted hover:text-f1-white">
+            <CountryFlag country={nextRace.data.circuit_country} />
             Next Race: <span className="text-f1-text">{nextRace.data.race_name}</span>
             {days !== null && days > 0 ? ` in ${days} days` : ''}
           </Link>

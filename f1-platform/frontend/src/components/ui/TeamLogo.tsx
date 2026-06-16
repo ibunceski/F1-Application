@@ -24,7 +24,7 @@ const teamLogoSources: TeamLogoSource[] = [
   {
     match: ['red bull'],
     domain: 'redbullracing.com',
-    urls: ['https://upload.wikimedia.org/wikipedia/en/f/fa/Red_Bull_Racing_Logo_2026.svg'],
+    urls: ['https://www.redbullracing.com/_next/static/media/ORBR_logo_2026.4059dac5.svg'],
     tone: 'light',
     wide: true,
   },
@@ -93,16 +93,24 @@ function fallbackText(teamName: string | null | undefined, shortName: string | n
     .toUpperCase();
 }
 
-function FerrariMark({ teamName, dimensions }: { teamName: string | null | undefined; dimensions: string }) {
+function FerrariMark({
+  teamName,
+  dimensions,
+  imageFit,
+}: {
+  teamName: string | null | undefined;
+  dimensions: string;
+  imageFit: string;
+}) {
   return (
     <span
-      className={`${dimensions} inline-flex shrink-0 items-center justify-center overflow-hidden rounded border border-[#f3c000] bg-[#ffd400] p-[2px]`}
+      className={`${dimensions} inline-flex shrink-0 items-center justify-center overflow-hidden rounded border border-[#f3c000] bg-[#ffd400] p-1`}
       aria-label={`${teamName || 'Ferrari'} logo`}
     >
       <img
         src="https://upload.wikimedia.org/wikipedia/en/thumb/3/36/Prancing_horse.svg/250px-Prancing_horse.svg.png"
         alt=""
-        className="h-full max-w-[78%] object-contain"
+        className={`${imageFit} object-contain`}
         loading="lazy"
         referrerPolicy="no-referrer"
       />
@@ -114,8 +122,14 @@ export function TeamLogo({ teamName, shortName, size = 'sm' }: TeamLogoProps) {
   const [sourceIndex, setSourceIndex] = useState(0);
   const { urls, monochrome, tone, wide, mark } = useMemo(() => logoConfig(teamName), [teamName]);
   const src = urls[sourceIndex];
-  const squareDimensions = size === 'md' ? 'h-8 w-8' : 'h-6 w-6';
-  const imageDimensions = wide ? (size === 'md' ? 'h-8 w-20' : 'h-6 w-16') : squareDimensions;
+  const badgeDimensions = size === 'md' ? 'h-8 w-12' : 'h-6 w-10';
+  const imageFit = wide
+    ? size === 'md'
+      ? 'max-h-5 max-w-10'
+      : 'max-h-4 max-w-8'
+    : size === 'md'
+      ? 'max-h-6 max-w-7'
+      : 'max-h-5 max-w-6';
   const textSize = size === 'md' ? 'text-[0.65rem]' : 'text-[0.55rem]';
   const chipTone = tone === 'light' ? 'bg-white' : 'bg-black';
 
@@ -124,13 +138,13 @@ export function TeamLogo({ teamName, shortName, size = 'sm' }: TeamLogoProps) {
   }, [teamName]);
 
   if (mark === 'ferrari') {
-    return <FerrariMark teamName={teamName} dimensions={squareDimensions} />;
+    return <FerrariMark teamName={teamName} dimensions={badgeDimensions} imageFit={imageFit} />;
   }
 
   if (!src) {
     return (
       <span
-        className={`${squareDimensions} ${textSize} inline-flex shrink-0 items-center justify-center rounded border border-f1-border bg-f1-elevated font-mono font-bold text-f1-muted`}
+        className={`${badgeDimensions} ${textSize} inline-flex shrink-0 items-center justify-center rounded border border-f1-border bg-f1-elevated font-mono font-bold text-f1-muted`}
         aria-label={`${teamName || 'Unknown team'} logo fallback`}
       >
         {fallbackText(teamName, shortName)}
@@ -139,11 +153,11 @@ export function TeamLogo({ teamName, shortName, size = 'sm' }: TeamLogoProps) {
   }
 
   return (
-    <span className={`${imageDimensions} inline-flex shrink-0 items-center justify-center rounded border border-f1-border ${chipTone} p-1`}>
+    <span className={`${badgeDimensions} inline-flex shrink-0 items-center justify-center rounded border border-f1-border ${chipTone} p-1`}>
       <img
         src={src}
         alt={`${teamName || 'Team'} logo`}
-        className={`max-h-full max-w-full object-contain ${monochrome ? 'brightness-0 invert' : ''}`}
+        className={`${imageFit} object-contain ${monochrome ? 'brightness-0 invert' : ''}`}
         loading="lazy"
         referrerPolicy="no-referrer"
         onError={() => setSourceIndex((index) => index + 1)}
