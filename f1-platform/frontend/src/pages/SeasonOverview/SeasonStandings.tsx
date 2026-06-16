@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { TeamLogo } from '../../components/ui/TeamLogo';
 import type { RaceResult } from '../../types';
 
 type ResultsByRace = Record<number, RaceResult[]>;
@@ -9,6 +10,7 @@ interface DriverStanding {
   abbreviation: string;
   nationality: string | null;
   teamName: string;
+  teamShortName: string;
   points: number;
 }
 
@@ -23,8 +25,6 @@ interface SeasonStandingsProps {
   resultsByRace: ResultsByRace;
   isLoading?: boolean;
 }
-
-const teamDots = ['bg-f1-red', 'bg-compound-wet', 'bg-compound-inter', 'bg-podium-gold', 'bg-podium-bronze', 'bg-compound-hard'];
 
 function countryFlag(value: string | null) {
   if (!value || value.length !== 2) return '';
@@ -42,10 +42,6 @@ function podiumClass(position: number) {
   return 'text-f1-muted';
 }
 
-function dotClass(id: number) {
-  return teamDots[id % teamDots.length];
-}
-
 function buildStandings(resultsByRace: ResultsByRace) {
   const driverMap = new Map<number, DriverStanding>();
   const constructorMap = new Map<number, ConstructorStanding>();
@@ -59,10 +55,12 @@ function buildStandings(resultsByRace: ResultsByRace) {
         abbreviation: result.driver.abbreviation,
         nationality: result.driver.nationality,
         teamName: result.team.name,
+        teamShortName: result.team.short_name,
         points: 0,
       };
       driver.points += result.points;
       driver.teamName = result.team.name;
+      driver.teamShortName = result.team.short_name;
       driverMap.set(result.driver.id, driver);
 
       const constructor = constructorMap.get(result.team.id) || {
@@ -140,7 +138,7 @@ export function SeasonStandings({ resultsByRace, isLoading }: SeasonStandingsPro
                     <span>{row.name} <span className="text-f1-muted">{countryFlag(row.nationality)}</span></span>
                   ) : (
                     <span className="inline-flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full ${dotClass(row.id)}`} />
+                      <TeamLogo teamName={row.name} shortName={row.shortName} />
                       {row.name}
                     </span>
                   )}
@@ -148,7 +146,7 @@ export function SeasonStandings({ resultsByRace, isLoading }: SeasonStandingsPro
                 {'abbreviation' in row ? (
                   <td className="px-4 py-3 text-f1-muted">
                     <span className="inline-flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full ${dotClass(row.id)}`} />
+                      <TeamLogo teamName={row.teamName} shortName={row.teamShortName} />
                       {row.teamName}
                     </span>
                   </td>
