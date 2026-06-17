@@ -25,7 +25,9 @@ load_dotenv(PROJECT_DIR / ".env", override=False)
 
 from app.models.driver import Driver
 from app.models.lap_time import LapTime
+from app.models.qualifying_result import QualifyingResult
 from app.models.race import Race
+from app.models.race_result import RaceResult
 from app.models.season import Season
 from app.models.weather import WeatherData
 from ingestion.db_helpers import get_session
@@ -137,6 +139,14 @@ def _to_float(value: Any) -> float | None:
     return float(value)
 
 
+def _to_str(value: Any) -> str | None:
+    value = _none_if_missing(value)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _to_bool(value: Any) -> bool:
     value = _none_if_missing(value)
     if value is None:
@@ -185,9 +195,65 @@ def _is_upcoming_race(race_date: date) -> bool:
     return race_date >= datetime.now(UTC).date()
 
 
-def _driver_map(db: Session) -> dict[int, int]:
-    drivers = db.execute(select(Driver.id, Driver.driver_number)).all()
-    return {int(driver_number): driver_id for driver_id, driver_number in drivers}
+def _add_driver_number_mapping(
+    mapping: dict[int, int],
+    rows: list[tuple[int, int | None]],
+    race: Race,
+    source: str,
+    override: bool = False,
+) -> None:
+    for driver_id, driver_number in rows:
+        if driver_number is None:
+            continue
+        number = int(driver_number)
+        if number in mapping and mapping[number] != driver_id and not override:
+            LOGGER.warning(
+                "Skipping duplicate driver number %s for Round %s from %s: keeping driver_id=%s, ignoring driver_id=%s.",
+                number,
+                race.round_number,
+                source,
+                mapping[number],
+                driver_id,
+            )
+            continue
+        mapping[number] = driver_id
+
+
+def _driver_map(db: Session, race: Race) -> dict[int, int]:
+    mapping: dict[int, int] = {}
+
+    race_result_drivers = list(
+        db.execute(
+            select(Driver.id, Driver.driver_number)
+            .join(RaceResult, RaceResult.driver_id == Driver.id)
+            .where(RaceResult.race_id == race.id)
+        ).all()
+    )
+    _add_driver_number_mapping(mapping, race_result_drivers, race, "race results")
+
+    qualifying_drivers = list(
+        db.execute(
+            select(Driver.id, Driver.driver_number)
+            .join(QualifyingResult, QualifyingResult.driver_id == Driver.id)
+            .where(QualifyingResult.race_id == race.id)
+        ).all()
+    )
+    _add_driver_number_mapping(mapping, qualifying_drivers, race, "qualifying results")
+
+    all_drivers = list(db.execute(select(Driver.id, Driver.driver_number).order_by(Driver.id.asc())).all())
+    _add_driver_number_mapping(mapping, all_drivers, race, "driver registry fallback")
+    return mapping
+
+
+def _driver_abbreviation_map(db: Session) -> dict[str, int]:
+    drivers = db.execute(select(Driver.id, Driver.driver_id, Driver.abbreviation)).all()
+    mapping: dict[str, int] = {}
+    for driver_id, external_id, abbreviation in drivers:
+        if external_id:
+            mapping[str(external_id).upper()] = driver_id
+        if abbreviation:
+            mapping[str(abbreviation).upper()] = driver_id
+    return mapping
 
 
 def _lap_mapping(row: Any, race_id: int, driver_id: int) -> dict[str, Any]:
@@ -216,15 +282,20 @@ def build_lap_mappings(session: Any, race: Race) -> list[dict[str, Any]]:
     seen_keys: set[tuple[int, int, int]] = set()
 
     with get_session() as db:
-        drivers_by_number = _driver_map(db)
+        drivers_by_abbreviation = _driver_abbreviation_map(db)
+        drivers_by_number = _driver_map(db, race)
 
     for _, row in session.laps.iterrows():
+        driver_abbreviation = _to_str(row.get("Driver"))
         driver_number = _to_int(row.get("DriverNumber"))
-        driver_id = drivers_by_number.get(driver_number) if driver_number is not None else None
+        driver_id = drivers_by_abbreviation.get(driver_abbreviation.upper()) if driver_abbreviation else None
+        if driver_id is None and driver_number is not None:
+            driver_id = drivers_by_number.get(driver_number)
         if driver_id is None:
             LOGGER.warning(
-                "Skipping lap for Round %s: driver number %s not found.",
+                "Skipping lap for Round %s: driver=%s driver number=%s not found.",
                 race.round_number,
+                driver_abbreviation,
                 row.get("DriverNumber"),
             )
             continue

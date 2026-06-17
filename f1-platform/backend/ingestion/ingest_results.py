@@ -151,7 +151,11 @@ def _fetch_jolpica_results(year: int, round_number: int, endpoint: str) -> list[
     races = response.json().get("MRData", {}).get("RaceTable", {}).get("Races", [])
     if not races:
         return []
-    return races[0].get("QualifyingResults" if endpoint == "qualifying" else "Results", [])
+    result_key = {
+        "qualifying": "QualifyingResults",
+        "sprint": "SprintResults",
+    }.get(endpoint, "Results")
+    return races[0].get(result_key, [])
 
 
 def _is_fastf1_race_results_complete(results: Any) -> bool:
@@ -294,6 +298,21 @@ def _jolpica_race_rows(year: int, round_number: int) -> list[dict[str, Any]]:
     return rows
 
 
+def _jolpica_sprint_points(year: int, round_number: int) -> dict[str, float]:
+    points_by_driver: dict[str, float] = {}
+    try:
+        sprint_rows = _fetch_jolpica_results(year, round_number, "sprint")
+    except Exception as exc:
+        LOGGER.info("Sprint results unavailable for %s Round %s: %s", year, round_number, exc)
+        return points_by_driver
+
+    for item in sprint_rows:
+        abbreviation = item.get("Driver", {}).get("code")
+        if abbreviation:
+            points_by_driver[abbreviation] = _to_float(item.get("points")) or 0.0
+    return points_by_driver
+
+
 def ingest_qualifying_results(race: Race, year: int) -> int:
     started_at = time.monotonic()
     try:
@@ -395,17 +414,20 @@ def ingest_race_results(race: Race, year: int) -> int:
         session = fastf1.get_session(year, race.round_number, "R")
         session.load(laps=False, telemetry=False, weather=False, messages=False)
         rows: list[dict[str, Any]] = []
+        sprint_points = _jolpica_sprint_points(year, race.round_number)
         if _is_fastf1_race_results_complete(session.results):
             for _, row in session.results.iterrows():
+                abbreviation = _to_str(row.get("Abbreviation"))
                 rows.append(
                     {
-                        "abbreviation": _to_str(row.get("Abbreviation")),
+                        "abbreviation": abbreviation,
                         "team_name": _to_str(row.get("TeamName")),
                         "grid_position": _to_int(row.get("GridPosition")),
                         "finishing_position": _to_int(row.get("Position")),
                         "classified_position": _to_str(row.get("ClassifiedPosition")),
                         "status": _to_str(row.get("Status")) or "Unknown",
                         "points": _to_float(row.get("Points")) or 0.0,
+                        "sprint_points": sprint_points.get(abbreviation or "", 0.0),
                         "laps_completed": _to_int(row.get("NumberOfLaps")) or 0,
                         "fastest_lap": _to_bool(row.get("FastestLap")),
                         "fastest_lap_time_ms": _timedelta_to_ms(row.get("FastestLapTime")),
@@ -419,6 +441,8 @@ def ingest_race_results(race: Race, year: int) -> int:
                 race.round_number,
             )
             rows = _jolpica_race_rows(year, race.round_number)
+            for row in rows:
+                row["sprint_points"] = sprint_points.get(row.get("abbreviation") or "", 0.0)
 
         saved_count = 0
         with get_session() as db:
@@ -450,6 +474,7 @@ def ingest_race_results(race: Race, year: int) -> int:
                         "classified_position": row["classified_position"],
                         "status": row["status"],
                         "points": row["points"],
+                        "sprint_points": row.get("sprint_points", 0.0),
                         "laps_completed": row["laps_completed"],
                         "fastest_lap": row["fastest_lap"],
                         "fastest_lap_time_ms": row["fastest_lap_time_ms"],

@@ -1,4 +1,5 @@
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { chartTooltipStyles } from '../../lib/chartTooltip';
 import { formatGap } from '../../lib/formatters';
 import type { LapTime } from '../../types';
 
@@ -41,7 +42,7 @@ export function LapTimeDeltaChart({ lapTimesD1, lapTimesD2, d1Name, d2Name }: La
             <YAxis stroke="#6B6B80" tick={{ fill: '#6B6B80' }} tickFormatter={(value) => `${Number(value).toFixed(0)}ms`} />
             <ReferenceLine y={0} stroke="#E8E8F0" />
             <Tooltip
-              contentStyle={{ background: '#111118', border: '1px solid #2A2A3D', borderRadius: 8 }}
+              {...chartTooltipStyles}
               formatter={(value) => [formatGap(Math.abs(Number(value))), Number(value) > 0 ? `${d2Name} faster` : `${d1Name} faster`]}
               labelFormatter={(label) => `Lap ${label}`}
             />
