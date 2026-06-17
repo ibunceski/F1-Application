@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { chartTooltipStyles } from '../../lib/chartTooltip';
 import { formatLapTime } from '../../lib/formatters';
 import type { LapTimesByDriver, RaceResult } from '../../types';
 
@@ -99,7 +100,7 @@ export function LapTimeChart({ lapTimes, results }: LapTimeChartProps) {
             <XAxis dataKey="lap" stroke="#6B6B80" tick={{ fill: '#6B6B80' }} />
             <YAxis stroke="#6B6B80" tick={{ fill: '#6B6B80' }} tickFormatter={(value) => formatLapTime(Number(value) * 1000)} />
             <Tooltip
-              contentStyle={{ background: '#111118', border: '1px solid #2A2A3D', borderRadius: 8 }}
+              {...chartTooltipStyles}
               formatter={(value, name) => [formatLapTime(Number(value) * 1000), driversById.get([...driversById.values()].find((driver) => driver.abbreviation === name)?.driver_id || 0)?.driver_name || name]}
               labelFormatter={(label) => `Lap ${label}`}
             />

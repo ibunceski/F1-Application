@@ -12,6 +12,7 @@ import {
   YAxis,
   ZAxis,
 } from 'recharts';
+import { chartTooltipStyles } from '../../lib/chartTooltip';
 import type { Prediction } from '../../types';
 import { teamColor } from './teamColors';
 
@@ -114,12 +115,12 @@ export function PredictionCharts({ predictions }: PredictionChartsProps) {
         <p className="section-label mb-4">Podium Probability</p>
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={podium} layout="vertical" margin={{ top: 8, right: 24, bottom: 8, left: 20 }}>
+            <BarChart data={podium} layout="vertical" margin={{ top: 8, right: 24, bottom: 8, left: 8 }}>
               <CartesianGrid stroke="#2A2A3D" horizontal={false} />
               <XAxis type="number" domain={[0, 1]} stroke="#6B6B80" tick={{ fill: '#6B6B80' }} />
-              <YAxis type="category" dataKey="driver" width={54} stroke="#6B6B80" tick={{ fill: '#E8E8F0' }} />
+              <YAxis type="category" dataKey="driver" width={72} interval={0} stroke="#6B6B80" tick={{ fill: '#E8E8F0' }} />
               <Tooltip
-                contentStyle={{ background: '#111118', border: '1px solid #2A2A3D', borderRadius: 8 }}
+                {...chartTooltipStyles}
                 formatter={(value) => [`${(Number(value) * 100).toFixed(1)}%`, 'Podium']}
                 labelFormatter={(_, payload) => {
                   const row = payload?.[0]?.payload;
