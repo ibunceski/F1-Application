@@ -58,7 +58,7 @@ function buildStandings(resultsByRace: ResultsByRace) {
         teamShortName: result.team.short_name,
         points: 0,
       };
-      driver.points += result.points;
+      driver.points += result.points + result.sprint_points;
       driver.teamName = result.team.name;
       driver.teamShortName = result.team.short_name;
       driverMap.set(result.driver.id, driver);
@@ -69,7 +69,7 @@ function buildStandings(resultsByRace: ResultsByRace) {
         shortName: result.team.short_name,
         points: 0,
       };
-      constructor.points += result.points;
+      constructor.points += result.points + result.sprint_points;
       constructorMap.set(result.team.id, constructor);
     });
 

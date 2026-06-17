@@ -59,6 +59,7 @@ export interface RaceResult {
   classified_position: string | null;
   status: string;
   points: number;
+  sprint_points: number;
   laps_completed: number;
   fastest_lap: boolean;
   fastest_lap_time_ms: number | null;
