@@ -19,6 +19,17 @@ interface PredictionChartsProps {
   predictions: Prediction[];
 }
 
+interface ScatterDatum {
+  driver: string;
+  driverName: string;
+  team: string;
+  grid: number;
+  predicted: number;
+  winnerProbability: number;
+  gain: boolean;
+  modelContext: string;
+}
+
 function scatterData(predictions: Prediction[]) {
   return predictions.map((prediction) => ({
     driver: prediction.driver.abbreviation,
@@ -50,6 +61,25 @@ function contextLabel(value?: string) {
   return 'Model context unavailable';
 }
 
+function GridPredictionTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload?: ScatterDatum }> }) {
+  const row = payload?.[0]?.payload;
+  if (!active || !row) return null;
+
+  return (
+    <div className="rounded-lg border border-f1-border bg-[#111118] px-3 py-2 text-sm text-f1-white shadow-xl">
+      <p className="font-semibold text-f1-white">
+        {row.driverName} ({row.driver})
+      </p>
+      <p className="mt-0.5 text-xs text-f1-muted">{row.team} - {row.modelContext}</p>
+      <div className="mt-3 space-y-1 text-f1-white">
+        <p>Grid: {row.grid.toFixed(1)}</p>
+        <p>Predicted: {row.predicted.toFixed(1)}</p>
+        <p>Winner probability: {row.winnerProbability.toFixed(1)}</p>
+      </div>
+    </div>
+  );
+}
+
 export function PredictionCharts({ predictions }: PredictionChartsProps) {
   const scatter = scatterData(predictions);
   const podium = podiumData(predictions);
@@ -68,12 +98,7 @@ export function PredictionCharts({ predictions }: PredictionChartsProps) {
               <ReferenceLine segment={[{ x: 1, y: 1 }, { x: 20, y: 20 }]} stroke="#6B6B80" strokeDasharray="4 4" />
               <Tooltip
                 cursor={{ strokeDasharray: '3 3' }}
-                contentStyle={{ background: '#111118', border: '1px solid #2A2A3D', borderRadius: 8 }}
-                formatter={(value, name) => [Number(value).toFixed(1), name]}
-                labelFormatter={(_, payload) => {
-                  const row = payload?.[0]?.payload;
-                  return row ? `${row.driverName} - ${row.modelContext}` : '';
-                }}
+                content={<GridPredictionTooltip />}
               />
               <Scatter data={scatter}>
                 {scatter.map((entry) => (
