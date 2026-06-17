@@ -40,12 +40,18 @@ export function PredictionOutcomeBadges({
     badges.push(<Badge key="winner" tone={winnerCorrect ? 'good' : 'bad'} label={winnerCorrect ? 'Correct winner' : 'Missed winner'} />);
   }
   if (predictedPodium !== undefined && actualPodium !== undefined) {
-    const hit = predictedPodium && actualPodium;
-    badges.push(<Badge key="podium" tone={hit ? 'good' : 'neutral'} label={hit ? 'Podium hit' : 'Podium miss'} />);
+    const accurate = predictedPodium === actualPodium;
+    const label = predictedPodium
+      ? actualPodium ? 'Podium hit' : 'Missed podium'
+      : actualPodium ? 'Podium surprise' : 'Outside podium';
+    badges.push(<Badge key="podium" tone={accurate ? 'good' : 'bad'} label={label} />);
   }
   if (predictedTop10 !== undefined && actualTop10 !== undefined) {
-    const hit = predictedTop10 && actualTop10;
-    badges.push(<Badge key="top10" tone={hit ? 'good' : 'neutral'} label={hit ? 'Top 10 hit' : 'Top 10 miss'} />);
+    const accurate = predictedTop10 === actualTop10;
+    const label = predictedTop10
+      ? actualTop10 ? 'Top 10 hit' : 'Missed top 10'
+      : actualTop10 ? 'Top 10 surprise' : 'Outside top 10';
+    badges.push(<Badge key="top10" tone={accurate ? 'good' : 'bad'} label={label} />);
   }
 
   return <div className={`flex flex-wrap ${compact ? 'gap-1.5' : 'gap-2'}`}>{badges}</div>;
