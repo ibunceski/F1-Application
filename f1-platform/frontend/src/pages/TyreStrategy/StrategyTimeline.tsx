@@ -96,7 +96,7 @@ export function StrategyTimeline({ strategies, totalLaps, results }: StrategyTim
       </div>
       {tooltip ? (
         <div
-          className="pointer-events-none fixed z-50 rounded border border-f1-border bg-f1-surface px-3 py-2 text-xs text-f1-text shadow-xl"
+          className="pointer-events-none fixed z-50 rounded border border-f1-border bg-f1-surface px-3 py-2 text-xs text-f1-white shadow-xl"
           style={{ left: tooltip.x + 12, top: tooltip.y + 12 }}
         >
           <p className="font-semibold text-f1-white">{tooltip.stint.compound} tyre</p>

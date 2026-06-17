@@ -10,6 +10,7 @@ import {
   YAxis,
   ZAxis,
 } from 'recharts';
+import { chartTooltipStyles } from '../../lib/chartTooltip';
 import type { PredictionDriverComparison } from '../../types';
 
 interface PredictionErrorChartProps {
@@ -48,7 +49,7 @@ export function PredictionErrorChart({ drivers }: PredictionErrorChartProps) {
             <ReferenceLine segment={[{ x: 1, y: 1 }, { x: 20, y: 20 }]} stroke="#6B6B80" strokeDasharray="4 4" />
             <Tooltip
               cursor={{ strokeDasharray: '3 3' }}
-              contentStyle={{ background: '#111118', border: '1px solid #2A2A3D', borderRadius: 8 }}
+              {...chartTooltipStyles}
               formatter={(value, name) => [Number(value).toFixed(1), name]}
               labelFormatter={(_, payload) => payload?.[0]?.payload?.driverName || ''}
             />

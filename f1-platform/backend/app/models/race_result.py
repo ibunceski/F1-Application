@@ -26,6 +26,7 @@ class RaceResult(Base):
     classified_position: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False)
     points: Mapped[float] = mapped_column(Float, nullable=False)
+    sprint_points: Mapped[float] = mapped_column(Float, default=0.0, server_default="0", nullable=False)
     laps_completed: Mapped[int] = mapped_column(Integer, nullable=False)
     fastest_lap: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     fastest_lap_time_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

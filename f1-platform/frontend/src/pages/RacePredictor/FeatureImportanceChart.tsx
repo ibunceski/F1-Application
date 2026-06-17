@@ -1,4 +1,5 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { chartTooltipStyles } from '../../lib/chartTooltip';
 
 interface FeatureImportanceChartProps {
   importances: Record<string, number>;
@@ -39,7 +40,7 @@ export function FeatureImportanceChart({ importances, modelName }: FeatureImport
             <XAxis type="number" domain={[0, 'dataMax']} stroke="#6B6B80" tick={{ fill: '#6B6B80' }} />
             <YAxis type="category" dataKey="feature" width={140} stroke="#6B6B80" tick={{ fill: '#E8E8F0', fontSize: 11 }} />
             <Tooltip
-              contentStyle={{ background: '#111118', border: '1px solid #2A2A3D', borderRadius: 8 }}
+              {...chartTooltipStyles}
               formatter={(value) => [Number(value).toFixed(4), 'Importance']}
             />
             <Bar dataKey="value" fill="#E8002D" radius={[0, 4, 4, 0]} />

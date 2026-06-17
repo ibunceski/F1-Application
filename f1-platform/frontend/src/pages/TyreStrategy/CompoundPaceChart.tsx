@@ -1,4 +1,5 @@
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { chartTooltipStyles } from '../../lib/chartTooltip';
 import type { DriverTyreStrategy } from '../../types';
 import { compoundColor } from './tyreUtils';
 
@@ -35,7 +36,7 @@ export function CompoundPaceChart({ strategies }: CompoundPaceChartProps) {
             <XAxis dataKey="compound" stroke="#6B6B80" tick={{ fill: '#E8E8F0' }} />
             <YAxis stroke="#6B6B80" tick={{ fill: '#6B6B80' }} tickFormatter={(value) => `${Number(value).toFixed(1)}s`} />
             <Tooltip
-              contentStyle={{ background: '#111118', border: '1px solid #2A2A3D', borderRadius: 8 }}
+              {...chartTooltipStyles}
               formatter={(value) => [`${Number(value).toFixed(3)}s`, 'Average pace']}
             />
             <Bar dataKey="pace" radius={[4, 4, 0, 0]}>

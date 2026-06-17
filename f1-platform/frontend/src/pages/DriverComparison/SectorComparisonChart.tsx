@@ -1,4 +1,5 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { chartTooltipStyles } from '../../lib/chartTooltip';
 import { formatGap } from '../../lib/formatters';
 import type { DriverComparisonResponse } from '../../types';
 import { sectorStats } from './comparisonUtils';
@@ -29,7 +30,7 @@ export function SectorComparisonChart({ comparison }: SectorComparisonChartProps
             <XAxis dataKey="sector" stroke="#6B6B80" tick={{ fill: '#6B6B80' }} />
             <YAxis stroke="#6B6B80" tick={{ fill: '#6B6B80' }} tickFormatter={(value) => `${Number(value).toFixed(1)}s`} />
             <Tooltip
-              contentStyle={{ background: '#111118', border: '1px solid #2A2A3D', borderRadius: 8 }}
+              {...chartTooltipStyles}
               formatter={(value) => [`${Number(value).toFixed(3)}s`, 'Time']}
             />
             <Bar dataKey="d1" name={d1.abbreviation} fill="#1E90FF" radius={[4, 4, 0, 0]} />

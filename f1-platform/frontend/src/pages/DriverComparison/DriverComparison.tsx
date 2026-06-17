@@ -95,6 +95,7 @@ export function DriverComparison() {
       classified_position: null,
       status: '',
       points: 0,
+      sprint_points: 0,
       laps_completed: 0,
       fastest_lap: false,
       fastest_lap_time_ms: null,

@@ -15,6 +15,7 @@ class RaceResultResponse(BaseModel):
     classified_position: Optional[str]
     status: str
     points: float
+    sprint_points: float = 0.0
     laps_completed: int
     fastest_lap: bool
     fastest_lap_time_ms: Optional[float]
