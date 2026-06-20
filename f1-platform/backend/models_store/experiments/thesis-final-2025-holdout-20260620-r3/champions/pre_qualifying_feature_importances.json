@@ -1,0 +1,24 @@
+{
+  "podium_model": {
+    "avg_race_pace_ms": 0.19215589089280763,
+    "circuit_history_avg_finish": 0.0,
+    "circuit_history_dnf_rate": 0.0,
+    "driver_recent_form": 0.44090332494875817,
+    "team_recent_form": 0.36694078415843423
+  },
+  "position_gain_model": {},
+  "position_model": {
+    "avg_race_pace_ms": 0.059894292390519355,
+    "circuit_history_avg_finish": 0.0,
+    "circuit_history_dnf_rate": 0.0,
+    "driver_recent_form": 2.179845944576199,
+    "team_recent_form": 1.4363853737414045
+  },
+  "top10_model": {
+    "avg_race_pace_ms": 0.001167497036358404,
+    "circuit_history_avg_finish": 0.0,
+    "circuit_history_dnf_rate": 0.0,
+    "driver_recent_form": 0.8407773154199013,
+    "team_recent_form": 0.6552960174329023
+  }
+}

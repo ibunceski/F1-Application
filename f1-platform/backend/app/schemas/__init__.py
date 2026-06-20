@@ -7,6 +7,13 @@ from app.schemas.analysis import (
 from app.schemas.driver import DriverBase, DriverResponse
 from app.schemas.lap_time import LapTimeResponse
 from app.schemas.ml_feature import MLFeatureResponse
+from app.schemas.model_lab import (
+    AblationResultsResponse,
+    ArtifactListResponse,
+    ExperimentListResponse,
+    ExperimentOverviewResponse,
+    FilteredResultsResponse,
+)
 from app.schemas.prediction import (
     NextRacePredictionContextResponse,
     NextRacePredictionGenerateRequest,
@@ -29,6 +36,11 @@ __all__ = [
     "DriverLapSummary",
     "DriverResponse",
     "DriverTyreStrategy",
+    "AblationResultsResponse",
+    "ArtifactListResponse",
+    "ExperimentListResponse",
+    "ExperimentOverviewResponse",
+    "FilteredResultsResponse",
     "LapTimeResponse",
     "MLFeatureResponse",
     "NextRacePredictionContextResponse",
