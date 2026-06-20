@@ -1,4 +1,4 @@
-import { BarChart2, Brain, CalendarClock, CircleDot, LayoutDashboard, Target, Users } from 'lucide-react';
+import { BarChart2, Brain, CalendarClock, CircleDot, FlaskConical, LayoutDashboard, Target, Users } from 'lucide-react';
 import { useEffect } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useSeason } from '../../contexts/useSeason';
@@ -25,6 +25,7 @@ export function Sidebar() {
 
   const items = [
     { label: 'Dashboard', icon: LayoutDashboard, to: `/seasons/${currentYear}` },
+    { label: 'Model Lab', icon: FlaskConical, to: '/model-lab' },
     { label: 'Next Race', icon: CalendarClock, to: '/predictions/next-race' },
     { label: 'Race Predictor', icon: Target, to: `/seasons/${currentYear}/races?view=predict` },
     { label: 'Race Analysis', icon: BarChart2, to: `/seasons/${currentYear}/races?view=analysis` },

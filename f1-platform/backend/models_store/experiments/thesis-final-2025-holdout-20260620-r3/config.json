@@ -1,0 +1,8 @@
+{
+  "classification_threshold_rule": "F1_on_last_inner_training_season_only",
+  "feature_ablation_method": "same_candidate_matrix_and_temporal_folds_with_validation_only_selection",
+  "final_holdout_used_for_selection": false,
+  "min_train_seasons": 2,
+  "selection_rule": "best_mean_primary_validation_metric_with_simpler_model_tie_break",
+  "validation_strategy": "expanding_rolling_origin_by_completed_season"
+}

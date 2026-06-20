@@ -3,6 +3,7 @@ import { AppShell } from './components/layout/AppShell';
 import { useSeason } from './contexts/useSeason';
 import { DriverComparison } from './pages/DriverComparison/DriverComparison';
 import { ModelExplanation } from './pages/ModelExplanation/ModelExplanation';
+import { ModelLab } from './pages/ModelLab/ModelLab';
 import { NextRacePrediction } from './pages/NextRacePrediction/NextRacePrediction';
 import { NotFound } from './pages/NotFound';
 import { PredictionComparison } from './pages/PredictionComparison/PredictionComparison';
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/seasons/:year/races/:raceId/tyres" element={<TyreStrategy />} />
           <Route path="/drivers/compare" element={<DriverComparison />} />
           <Route path="/model" element={<ModelExplanation />} />
+          <Route path="/model-lab" element={<ModelLab />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

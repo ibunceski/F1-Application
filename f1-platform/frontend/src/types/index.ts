@@ -234,6 +234,101 @@ export interface ModelInfo {
   post_qualifying?: ModelInfo;
 }
 
+export type ModelLabContext = PredictionContext;
+export type ModelLabTask = 'position_model' | 'top10_model' | 'podium_model' | 'position_gain_model';
+
+export interface ModelLabExperimentSummary {
+  experiment_id: string;
+  completed_at: string | null;
+  contexts: ModelLabContext[];
+  evaluation_season: number | null;
+  status: 'completed' | 'malformed';
+  message: string | null;
+}
+
+export interface ModelLabExperimentList {
+  experiments: ModelLabExperimentSummary[];
+  latest_successful_experiment_id: string | null;
+}
+
+export interface ModelLabChampion {
+  context: ModelLabContext;
+  task: ModelLabTask;
+  algorithm: string;
+  primary_metric: string;
+  primary_score: number | null;
+  rank: number | null;
+  metrics: Record<string, number | null>;
+}
+
+export interface ModelLabLeaderboardEntry extends ModelLabChampion {
+  champion: boolean;
+}
+
+export interface ModelLabOverview {
+  experiment_id: string;
+  resolved_latest: boolean;
+  methodology: Record<string, unknown>;
+  data_summary: Record<string, unknown>;
+  champions: ModelLabChampion[];
+  leaderboard: ModelLabLeaderboardEntry[];
+}
+
+export interface ModelLabResultRow {
+  phase: string;
+  fold: string;
+  context: ModelLabContext;
+  task: ModelLabTask;
+  algorithm: string;
+  analysis_type: 'candidate_model' | 'feature_ablation';
+  ablation: string | null;
+  evaluation_season: number | null;
+  threshold: number | null;
+  threshold_selection_season: number | null;
+  metrics: Record<string, number | null>;
+}
+
+export interface ModelLabResults {
+  experiment_id: string;
+  resolved_latest: boolean;
+  analysis_type: 'candidate_model' | 'feature_ablation';
+  rows: ModelLabResultRow[];
+}
+
+export interface ModelLabAblationEntry {
+  context: ModelLabContext;
+  task: ModelLabTask;
+  ablation: string;
+  algorithm: string;
+  primary_metric: string;
+  primary_score: number | null;
+  rank: number | null;
+  ablation_champion: boolean;
+  best_ablation: boolean;
+  metrics: Record<string, number | null>;
+}
+
+export interface ModelLabAblations {
+  experiment_id: string;
+  resolved_latest: boolean;
+  feature_sets: Record<string, Record<string, string[]>>;
+  leaderboard: ModelLabAblationEntry[];
+}
+
+export interface ModelLabArtifact {
+  name: string;
+  relative_path: string;
+  category: 'manifest' | 'table' | 'report' | 'figure' | 'model' | 'other';
+  media_type: string;
+  size_bytes: number;
+}
+
+export interface ModelLabArtifacts {
+  experiment_id: string;
+  resolved_latest: boolean;
+  artifacts: ModelLabArtifact[];
+}
+
 export interface SeasonStats {
   season: Season;
   race_count: number;

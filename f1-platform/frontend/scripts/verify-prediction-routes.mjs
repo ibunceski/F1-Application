@@ -16,6 +16,7 @@ function assertIncludes(file, needle, description) {
 
 const checks = [
   ['src/App.tsx', '/predictions/next-race', 'Next race prediction route'],
+  ['src/App.tsx', '/model-lab', 'Model Lab route'],
   ['src/App.tsx', '/seasons/:year/races/:raceId/prediction-comparison', 'Prediction comparison route'],
   ['src/api/predictions.ts', '/predictions/next-race/context', 'Next race context API'],
   ['src/api/predictions.ts', '/predictions/next-race/generate', 'Next race generate API'],
@@ -23,6 +24,9 @@ const checks = [
   ['src/pages/SeasonOverview/SeasonOverview.tsx', 'Predict Next Race', 'Dashboard next race CTA'],
   ['src/components/layout/TopBar.tsx', '/predictions/next-race', 'Clickable top bar next race link'],
   ['src/components/layout/Sidebar.tsx', 'Next Race', 'Sidebar next race item'],
+  ['src/components/layout/Sidebar.tsx', 'Model Lab', 'Sidebar Model Lab item'],
+  ['src/api/modelLab.ts', '/model-lab/overview', 'Model Lab overview API'],
+  ['src/pages/ModelLab/ModelLab.tsx', 'Candidate model comparison', 'Model Lab comparison view'],
   ['src/pages/NextRacePrediction/NextRacePrediction.tsx', 'generateNextRacePredictions', 'Next race page generation flow'],
   ['src/pages/PredictionComparison/PredictionComparison.tsx', 'Actual race results are not available yet.', 'Comparison missing-results state'],
   ['src/pages/PredictionComparison/PredictionComparison.tsx', 'Generate prediction first', 'Comparison missing-predictions CTA'],

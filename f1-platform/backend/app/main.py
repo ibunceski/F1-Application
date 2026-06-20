@@ -13,7 +13,7 @@ from app.config import settings
 from app.database import init_db
 from app.middleware.request_id import RequestIdMiddleware, configure_request_id_logging
 from app.ml import load_all_models, model_store
-from app.routers import analysis, drivers, predictions, races, results, seasons, teams
+from app.routers import analysis, drivers, model_lab, predictions, races, results, seasons, teams
 
 configure_request_id_logging()
 logger = logging.getLogger(__name__)
@@ -126,6 +126,7 @@ app.include_router(teams.router, prefix=settings.API_V1_PREFIX)
 app.include_router(results.router, prefix=settings.API_V1_PREFIX)
 app.include_router(analysis.router, prefix=settings.API_V1_PREFIX)
 app.include_router(predictions.router, prefix=settings.API_V1_PREFIX)
+app.include_router(model_lab.router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health")

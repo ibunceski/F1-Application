@@ -1,0 +1,336 @@
+{
+  "candidate_algorithms": {
+    "post_qualifying:podium_model": [
+      "PrevalenceBaseline",
+      "LogisticRegression",
+      "RandomForestClassifier",
+      "XGBClassifier",
+      "LGBMClassifier"
+    ],
+    "post_qualifying:position_gain_model": [
+      "ZeroChangeBaseline",
+      "Ridge",
+      "ElasticNet",
+      "RandomForestRegressor",
+      "XGBRegressor",
+      "LGBMRegressor"
+    ],
+    "post_qualifying:position_model": [
+      "MedianBaseline",
+      "GridPositionBaseline",
+      "Ridge",
+      "ElasticNet",
+      "RandomForestRegressor",
+      "XGBRegressor",
+      "LGBMRegressor"
+    ],
+    "post_qualifying:top10_model": [
+      "PrevalenceBaseline",
+      "LogisticRegression",
+      "RandomForestClassifier",
+      "XGBClassifier",
+      "LGBMClassifier"
+    ],
+    "pre_qualifying:podium_model": [
+      "PrevalenceBaseline",
+      "LogisticRegression",
+      "RandomForestClassifier",
+      "XGBClassifier",
+      "LGBMClassifier"
+    ],
+    "pre_qualifying:position_gain_model": [
+      "ZeroChangeBaseline",
+      "Ridge",
+      "ElasticNet",
+      "RandomForestRegressor",
+      "XGBRegressor",
+      "LGBMRegressor"
+    ],
+    "pre_qualifying:position_model": [
+      "MedianBaseline",
+      "Ridge",
+      "ElasticNet",
+      "RandomForestRegressor",
+      "XGBRegressor",
+      "LGBMRegressor"
+    ],
+    "pre_qualifying:top10_model": [
+      "PrevalenceBaseline",
+      "LogisticRegression",
+      "RandomForestClassifier",
+      "XGBClassifier",
+      "LGBMClassifier"
+    ]
+  },
+  "completed_at": "2026-06-19T23:52:23.553445+00:00",
+  "configuration": {
+    "classification_threshold_rule": "F1_on_last_inner_training_season_only",
+    "feature_ablation_method": "same_candidate_matrix_and_temporal_folds_with_validation_only_selection",
+    "final_holdout_used_for_selection": false,
+    "min_train_seasons": 2,
+    "selection_rule": "best_mean_primary_validation_metric_with_simpler_model_tie_break",
+    "validation_strategy": "expanding_rolling_origin_by_completed_season"
+  },
+  "contexts": [
+    "pre_qualifying",
+    "post_qualifying"
+  ],
+  "created_at": "2026-06-19T23:52:23.553445+00:00",
+  "data_fingerprints": {
+    "post_qualifying": {
+      "columns": [
+        "race_id",
+        "driver_id",
+        "season_year",
+        "race_date",
+        "data_cutoff_date",
+        "grid_position",
+        "qualifying_position",
+        "gap_to_pole_ms",
+        "avg_race_pace_ms",
+        "driver_recent_form",
+        "team_recent_form",
+        "circuit_history_avg_finish",
+        "circuit_history_dnf_rate",
+        "dnf_rate_recent",
+        "actual_finishing_position",
+        "finished_top10",
+        "finished_podium",
+        "position_gain_loss"
+      ],
+      "rows": 1837,
+      "season_counts": {
+        "2021": 439,
+        "2023": 440,
+        "2024": 479,
+        "2025": 479
+      },
+      "sha256": "587ad2f9edc1f1598fc5f0802f3f8ae91009e8a2da90f12e4ef561b4d68df0c3"
+    },
+    "pre_qualifying": {
+      "columns": [
+        "race_id",
+        "driver_id",
+        "season_year",
+        "race_date",
+        "data_cutoff_date",
+        "avg_race_pace_ms",
+        "driver_recent_form",
+        "team_recent_form",
+        "circuit_history_avg_finish",
+        "circuit_history_dnf_rate",
+        "dnf_rate_recent",
+        "actual_finishing_position",
+        "finished_top10",
+        "finished_podium",
+        "position_gain_loss"
+      ],
+      "rows": 1818,
+      "season_counts": {
+        "2021": 420,
+        "2023": 440,
+        "2024": 479,
+        "2025": 479
+      },
+      "sha256": "6acc990da748796a87633f3ce4bbd3a08eba187ef800706bc50a1db4e960e311"
+    }
+  },
+  "evaluation_season": 2025,
+  "experiment_id": "thesis-final-2025-holdout-20260620-r3",
+  "feature_ablations": {
+    "post_qualifying": {
+      "all_features_including_grid_qualifying": [
+        "grid_position",
+        "qualifying_position",
+        "gap_to_pole_ms",
+        "avg_race_pace_ms",
+        "driver_recent_form",
+        "team_recent_form",
+        "circuit_history_avg_finish",
+        "circuit_history_dnf_rate",
+        "dnf_rate_recent"
+      ],
+      "form_only": [
+        "driver_recent_form",
+        "team_recent_form"
+      ],
+      "form_plus_circuit_history": [
+        "driver_recent_form",
+        "team_recent_form",
+        "circuit_history_avg_finish",
+        "circuit_history_dnf_rate"
+      ]
+    },
+    "pre_qualifying": {
+      "all_features": [
+        "avg_race_pace_ms",
+        "driver_recent_form",
+        "team_recent_form",
+        "circuit_history_avg_finish",
+        "circuit_history_dnf_rate",
+        "dnf_rate_recent"
+      ],
+      "form_only": [
+        "driver_recent_form",
+        "team_recent_form"
+      ],
+      "form_plus_circuit_history": [
+        "driver_recent_form",
+        "team_recent_form",
+        "circuit_history_avg_finish",
+        "circuit_history_dnf_rate"
+      ]
+    }
+  },
+  "feature_columns": {
+    "post_qualifying": [
+      "grid_position",
+      "qualifying_position",
+      "gap_to_pole_ms",
+      "avg_race_pace_ms",
+      "driver_recent_form",
+      "team_recent_form",
+      "circuit_history_avg_finish",
+      "circuit_history_dnf_rate",
+      "dnf_rate_recent"
+    ],
+    "pre_qualifying": [
+      "avg_race_pace_ms",
+      "driver_recent_form",
+      "team_recent_form",
+      "circuit_history_avg_finish",
+      "circuit_history_dnf_rate",
+      "dnf_rate_recent"
+    ]
+  },
+  "folds": [
+    {
+      "name": "fold_1_2024",
+      "train_seasons": [
+        2021,
+        2023
+      ],
+      "validation_season": 2024
+    }
+  ],
+  "package_versions": {
+    "joblib": "1.4.2",
+    "lightgbm": "4.3.0",
+    "matplotlib": "3.11.0",
+    "numpy": "1.26.4",
+    "pandas": "2.2.2",
+    "scikit-learn": "1.5.0",
+    "sqlalchemy": "2.0.30",
+    "xgboost": "2.0.3"
+  },
+  "platform": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+  "python": "3.11.15 (main, Jun 11 2026, 01:09:01) [GCC 14.2.0]",
+  "sample_counts": {
+    "post_qualifying": {
+      "2021": 439,
+      "2023": 440,
+      "2024": 479,
+      "2025": 479
+    },
+    "pre_qualifying": {
+      "2021": 420,
+      "2023": 440,
+      "2024": 479,
+      "2025": 479
+    }
+  },
+  "season_completeness": {
+    "post_qualifying": [
+      {
+        "failures": [],
+        "max_race_date": "2021-12-12",
+        "minimum_qualifying_rows": 20,
+        "minimum_result_rows": 20,
+        "stored_races": 22,
+        "total_races": 22,
+        "valid": true,
+        "year": 2021
+      },
+      {
+        "failures": [],
+        "max_race_date": "2023-11-26",
+        "minimum_qualifying_rows": 20,
+        "minimum_result_rows": 20,
+        "stored_races": 22,
+        "total_races": 22,
+        "valid": true,
+        "year": 2023
+      },
+      {
+        "failures": [],
+        "max_race_date": "2024-12-08",
+        "minimum_qualifying_rows": 19,
+        "minimum_result_rows": 19,
+        "stored_races": 24,
+        "total_races": 24,
+        "valid": true,
+        "year": 2024
+      },
+      {
+        "failures": [],
+        "max_race_date": "2025-12-07",
+        "minimum_qualifying_rows": 19,
+        "minimum_result_rows": 19,
+        "stored_races": 24,
+        "total_races": 24,
+        "valid": true,
+        "year": 2025
+      }
+    ],
+    "pre_qualifying": [
+      {
+        "failures": [],
+        "max_race_date": "2021-12-12",
+        "minimum_qualifying_rows": 20,
+        "minimum_result_rows": 20,
+        "stored_races": 22,
+        "total_races": 22,
+        "valid": true,
+        "year": 2021
+      },
+      {
+        "failures": [],
+        "max_race_date": "2023-11-26",
+        "minimum_qualifying_rows": 20,
+        "minimum_result_rows": 20,
+        "stored_races": 22,
+        "total_races": 22,
+        "valid": true,
+        "year": 2023
+      },
+      {
+        "failures": [],
+        "max_race_date": "2024-12-08",
+        "minimum_qualifying_rows": 19,
+        "minimum_result_rows": 19,
+        "stored_races": 24,
+        "total_races": 24,
+        "valid": true,
+        "year": 2024
+      },
+      {
+        "failures": [],
+        "max_race_date": "2025-12-07",
+        "minimum_qualifying_rows": 19,
+        "minimum_result_rows": 19,
+        "stored_races": 24,
+        "total_races": 24,
+        "valid": true,
+        "year": 2025
+      }
+    ]
+  },
+  "seed": 42,
+  "status": "completed",
+  "train_seasons": [
+    2021,
+    2023,
+    2024
+  ],
+  "weather_policy": "excluded_pending_prediction_cutoff_provenance"
+}
