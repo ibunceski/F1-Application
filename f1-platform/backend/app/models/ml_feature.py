@@ -26,6 +26,7 @@ class MLFeature(Base):
     grid_position: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     qualifying_position: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     gap_to_pole_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    grid_position_source: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     avg_race_pace_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     driver_recent_form: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     team_recent_form: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
