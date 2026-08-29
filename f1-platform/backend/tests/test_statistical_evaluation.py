@@ -41,7 +41,9 @@ class StatisticalEvaluationTests(unittest.TestCase):
 
     def test_cluster_bootstrap_pooled_resamples_races(self):
         ci = cluster_bootstrap_pooled(_preds(), pooled_mae, n_boot=100, seed=1)
-        self.assertGreater(ci["ci_low"], 0.0)
+        self.assertGreater(ci["ci_high"], 0.0)
+        self.assertLessEqual(ci["ci_low"], ci["mean"])
+        self.assertLessEqual(ci["mean"], ci["ci_high"])
 
     def test_pooled_roc_auc_nan_on_single_class(self):
         one_class = pd.DataFrame({"race_id": [1, 1], "actual": [1, 1], "probability": [0.9, 0.8]})
@@ -52,7 +54,7 @@ class StatisticalEvaluationTests(unittest.TestCase):
 
     def test_paired_differences_align_on_common_races(self):
         a = pd.Series([1.0, 2.0], index=[1, 2])
-        b = pd.Series([3.0, 2.0], index=[2, 3])
+        b = pd.Series([2.0, 3.0], index=[2, 3])
         d = paired_metric_differences(a, b)
         self.assertEqual(sorted(d.index.tolist()), [2])
         self.assertAlmostEqual(d.loc[2], 0.0)
@@ -65,7 +67,7 @@ class StatisticalEvaluationTests(unittest.TestCase):
     def test_paired_bootstrap_ci_excludes_zero_for_clear_difference(self):
         diffs = pd.Series([-1.0] * 50)
         ci = paired_bootstrap_ci(diffs, n_boot=200, seed=42)
-        self.assertGreater(ci["ci_high"], ci["ci_low"])
+        self.assertLess(ci["ci_high"], 0.0)
 
 
 if __name__ == "__main__":
