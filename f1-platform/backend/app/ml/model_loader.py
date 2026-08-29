@@ -1,11 +1,13 @@
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
 import joblib
 
 from app.config import settings
+from app.ml.baseline_models import GridPositionRegressor, MedianRegressor, ZeroChangeRegressor
 from app.models.ml_feature import POST_QUALIFYING, PREDICTION_CONTEXTS
 
 logger = logging.getLogger(__name__)
@@ -16,6 +18,16 @@ MODEL_FILENAMES = {
     "podium_model": "podium_model.joblib",
     "position_gain_model": "position_gain_model.joblib",
 }
+
+
+def _register_legacy_baseline_models() -> None:
+    """Allow artifacts saved before baseline models had a stable module path to load."""
+    for module_name in ("__main__", "__mp_main__"):
+        module = sys.modules.get(module_name)
+        if module is not None:
+            module.MedianRegressor = MedianRegressor
+            module.ZeroChangeRegressor = ZeroChangeRegressor
+            module.GridPositionRegressor = GridPositionRegressor
 
 
 class ModelStore:
@@ -46,6 +58,7 @@ class ModelStore:
         if not path.exists():
             logger.warning("Model file missing: %s", path)
             return None
+        _register_legacy_baseline_models()
         model = joblib.load(path)
         logger.info("Loaded model: %s", path)
         return model

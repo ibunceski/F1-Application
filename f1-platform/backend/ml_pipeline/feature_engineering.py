@@ -10,7 +10,7 @@ from statistics import mean, median
 from typing import Any
 
 from dotenv import load_dotenv
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -588,6 +588,16 @@ def process_race(
             year,
             race.round_number,
         )
+    # Remove stale rows for this race/context before regenerating so the
+    # feature snapshot matches the current entry list exactly. `upsert` only
+    # updates matching rows and never deletes rows whose entry disappeared
+    # (e.g. after race results were recovered for a previously partial season).
+    db.execute(
+        delete(MLFeature).where(
+            MLFeature.race_id == race.id,
+            MLFeature.feature_context == feature_context,
+        )
+    )
     entry_medians = current_entry_medians(entries)
 
     for entry in entries:

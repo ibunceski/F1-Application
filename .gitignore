@@ -1,0 +1,12 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Generated ML experiment artifacts (reproducible, not committed)
+f1-platform/backend/models_store/experiments/
+
+# Local backups
+f1-platform/backups/
+
+# Superpowers SDD scratch workspace
+.superpowers/

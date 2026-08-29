@@ -1,25 +1,17 @@
 import { StatCard } from '../../components/ui/StatCard';
-import type { Driver, Race, Season } from '../../types';
+import type { Driver, Race, RaceResult, Season } from '../../types';
 
-function startOfToday() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today;
-}
-
-function completedRaces(races: Race[]) {
-  const today = startOfToday();
-  return races.filter((race) => new Date(race.race_date) < today).length;
-}
+type ResultsByRace = Record<number, RaceResult[]>;
 
 interface SeasonStatsProps {
   season?: Season;
   races: Race[];
   drivers: Driver[];
+  resultsByRace?: ResultsByRace;
   isLoading?: boolean;
 }
 
-export function SeasonStats({ season, races, drivers, isLoading }: SeasonStatsProps) {
+export function SeasonStats({ season, races, drivers, resultsByRace = {}, isLoading }: SeasonStatsProps) {
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -30,7 +22,7 @@ export function SeasonStats({ season, races, drivers, isLoading }: SeasonStatsPr
     );
   }
 
-  const completed = completedRaces(races);
+  const completed = races.filter((race) => (resultsByRace[race.id] || []).length > 0).length;
   const total = season?.total_races ?? races.length;
 
   return (

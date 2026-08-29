@@ -34,6 +34,8 @@ from ingestion.db_helpers import get_session, upsert
 
 LOGGER = logging.getLogger("ingestion.results")
 JOLPICA_BASE_URL = os.getenv("JOLPICA_BASE_URL", "https://api.jolpi.ca/ergast/f1")
+JOLPICA_MAX_RETRIES = int(os.getenv("JOLPICA_MAX_RETRIES", "5"))
+JOLPICA_RETRY_BASE_DELAY_SECONDS = float(os.getenv("JOLPICA_RETRY_BASE_DELAY_SECONDS", "5"))
 
 
 def parse_args() -> argparse.Namespace:
@@ -146,8 +148,40 @@ def _time_string_to_ms(value: str | None) -> float | None:
 def _fetch_jolpica_results(year: int, round_number: int, endpoint: str) -> list[dict[str, Any]]:
     url = f"{JOLPICA_BASE_URL}/{year}/{round_number}/{endpoint}.json"
     LOGGER.info("Fetching %s fallback data from %s", endpoint, url)
-    response = httpx.get(url, timeout=30.0)
-    response.raise_for_status()
+    response: httpx.Response | None = None
+    for attempt in range(1, JOLPICA_MAX_RETRIES + 1):
+        response = httpx.get(url, timeout=30.0)
+        if response.status_code not in {429, 500, 502, 503, 504}:
+            response.raise_for_status()
+            break
+
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                delay_seconds = float(retry_after)
+            except ValueError:
+                delay_seconds = JOLPICA_RETRY_BASE_DELAY_SECONDS * attempt
+        else:
+            delay_seconds = JOLPICA_RETRY_BASE_DELAY_SECONDS * attempt
+
+        if attempt == JOLPICA_MAX_RETRIES:
+            response.raise_for_status()
+
+        LOGGER.warning(
+            "Jolpica returned HTTP %s for %s %s round %s; retrying in %.1fs (%s/%s).",
+            response.status_code,
+            year,
+            endpoint,
+            round_number,
+            delay_seconds,
+            attempt,
+            JOLPICA_MAX_RETRIES,
+        )
+        time.sleep(delay_seconds)
+
+    if response is None:
+        raise RuntimeError(f"No response received from Jolpica for {url}")
+
     races = response.json().get("MRData", {}).get("RaceTable", {}).get("Races", [])
     if not races:
         return []
@@ -319,6 +353,7 @@ def ingest_qualifying_results(race: Race, year: int) -> int:
         LOGGER.info("Loading qualifying session for %s Round %s", year, race.round_number)
         rows: list[dict[str, Any]] = []
         pole_best_time_ms: float | None = None
+        use_jolpica_fallback = False
 
         try:
             session = fastf1.get_session(year, race.round_number, "Q")
@@ -348,8 +383,7 @@ def ingest_qualifying_results(race: Race, year: int) -> int:
                     year,
                     race.round_number,
                 )
-                rows = _jolpica_qualifying_rows(year, race.round_number)
-                pole_best_time_ms = next((row["best_time_ms"] for row in rows if row["position"] == 1), None)
+                use_jolpica_fallback = True
         except Exception as exc:
             LOGGER.warning(
                 "FastF1 qualifying unavailable for %s Round %s (%s); using Jolpica fallback.",
@@ -357,6 +391,9 @@ def ingest_qualifying_results(race: Race, year: int) -> int:
                 race.round_number,
                 exc,
             )
+            use_jolpica_fallback = True
+
+        if use_jolpica_fallback:
             rows = _jolpica_qualifying_rows(year, race.round_number)
             pole_best_time_ms = next((row["best_time_ms"] for row in rows if row["position"] == 1), None)
 
@@ -411,38 +448,52 @@ def ingest_race_results(race: Race, year: int) -> int:
     started_at = time.monotonic()
     try:
         LOGGER.info("Loading race session for %s Round %s", year, race.round_number)
-        session = fastf1.get_session(year, race.round_number, "R")
-        session.load(laps=False, telemetry=False, weather=False, messages=False)
-        rows: list[dict[str, Any]] = []
         sprint_points = _jolpica_sprint_points(year, race.round_number)
-        if _is_fastf1_race_results_complete(session.results):
-            for _, row in session.results.iterrows():
-                abbreviation = _to_str(row.get("Abbreviation"))
-                rows.append(
-                    {
-                        "abbreviation": abbreviation,
-                        "team_name": _to_str(row.get("TeamName")),
-                        "grid_position": _to_int(row.get("GridPosition")),
-                        "finishing_position": _to_int(row.get("Position")),
-                        "classified_position": _to_str(row.get("ClassifiedPosition")),
-                        "status": _to_str(row.get("Status")) or "Unknown",
-                        "points": _to_float(row.get("Points")) or 0.0,
-                        "sprint_points": sprint_points.get(abbreviation or "", 0.0),
-                        "laps_completed": _to_int(row.get("NumberOfLaps")) or 0,
-                        "fastest_lap": _to_bool(row.get("FastestLap")),
-                        "fastest_lap_time_ms": _timedelta_to_ms(row.get("FastestLapTime")),
-                        "fastest_lap_rank": _to_int(row.get("FastestLapRank")),
-                    }
+        rows: list[dict[str, Any]] = []
+        use_jolpica_fallback = False
+        try:
+            session = fastf1.get_session(year, race.round_number, "R")
+            session.load(laps=False, telemetry=False, weather=False, messages=False)
+            if _is_fastf1_race_results_complete(session.results):
+                for _, row in session.results.iterrows():
+                    abbreviation = _to_str(row.get("Abbreviation"))
+                    rows.append(
+                        {
+                            "abbreviation": abbreviation,
+                            "team_name": _to_str(row.get("TeamName")),
+                            "grid_position": _to_int(row.get("GridPosition")),
+                            "finishing_position": _to_int(row.get("Position")),
+                            "classified_position": _to_str(row.get("ClassifiedPosition")),
+                            "status": _to_str(row.get("Status")) or "Unknown",
+                            "points": _to_float(row.get("Points")) or 0.0,
+                            "sprint_points": sprint_points.get(abbreviation or "", 0.0),
+                            "laps_completed": _to_int(row.get("NumberOfLaps")) or 0,
+                            "fastest_lap": _to_bool(row.get("FastestLap")),
+                            "fastest_lap_time_ms": _timedelta_to_ms(row.get("FastestLapTime")),
+                            "fastest_lap_rank": _to_int(row.get("FastestLapRank")),
+                        }
+                    )
+            else:
+                LOGGER.warning(
+                    "FastF1 race results incomplete for %s Round %s; using Jolpica fallback.",
+                    year,
+                    race.round_number,
                 )
-        else:
+                use_jolpica_fallback = True
+        except Exception as exc:
             LOGGER.warning(
-                "FastF1 race results incomplete for %s Round %s; using Jolpica fallback.",
+                "FastF1 race results unavailable for %s Round %s (%s); using Jolpica fallback.",
                 year,
                 race.round_number,
+                exc,
             )
+            use_jolpica_fallback = True
+
+        if use_jolpica_fallback:
             rows = _jolpica_race_rows(year, race.round_number)
-            for row in rows:
-                row["sprint_points"] = sprint_points.get(row.get("abbreviation") or "", 0.0)
+
+        for row in rows:
+            row["sprint_points"] = sprint_points.get(row.get("abbreviation") or "", 0.0)
 
         saved_count = 0
         with get_session() as db:

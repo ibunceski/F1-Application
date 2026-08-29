@@ -22,11 +22,6 @@ function startOfToday() {
   return today;
 }
 
-function completedRaces(races: Race[]) {
-  const today = startOfToday();
-  return races.filter((race) => new Date(race.race_date) < today);
-}
-
 function buildResultsMap(races: Race[], results: RaceResult[][]): ResultsByRace {
   return races.reduce<ResultsByRace>((acc, race, index) => {
     acc[race.id] = results[index] || [];
@@ -126,7 +121,8 @@ function NextRaceCard({ race, isLoading, isMissing }: { race?: Race; isLoading: 
 }
 
 function QuickRaceCards({ year, races, resultsByRace }: { year: number; races: Race[]; resultsByRace: ResultsByRace }) {
-  const lastThree = completedRaces(races).slice(-3).reverse();
+  const completed = races.filter((race) => (resultsByRace[race.id] || []).length > 0);
+  const lastThree = completed.slice(-3).reverse();
   if (!lastThree.length) {
     return <EmptyState title="No completed races" description="Race summaries will appear once results are ingested." />;
   }
@@ -194,19 +190,19 @@ export function SeasonOverview() {
   const races = useQuery({ queryKey: ['races', year], queryFn: () => getRacesBySeason(year) });
   const drivers = useQuery({ queryKey: ['drivers', year], queryFn: () => getDriversBySeason(year) });
   const nextRace = useQuery({ queryKey: ['next-race'], queryFn: getNextRace, retry: 1 });
-  const completed = completedRaces(races.data || []);
+  const seasonRaces = races.data || [];
   const resultQueries = useQueries({
-    queries: completed.map((race) => ({
+    queries: seasonRaces.map((race) => ({
       queryKey: ['race-results', race.id],
       queryFn: () => getRaceResults(race.id),
       staleTime: 5 * 60 * 1000,
     })),
   });
   const resultsByRace = buildResultsMap(
-    completed,
+    seasonRaces,
     resultQueries.map((query) => query.data || []),
   );
-  const resultsLoading = resultQueries.some((query) => query.isLoading);
+  const resultsLoading = races.isLoading || resultQueries.some((query) => query.isLoading);
 
   if (season.isLoading && races.isLoading && drivers.isLoading) return <LoadingSpinner />;
 
@@ -229,17 +225,18 @@ export function SeasonOverview() {
 
       <SeasonStats
         season={season.data?.season}
-        races={races.data || []}
+        races={seasonRaces}
         drivers={drivers.data || []}
+        resultsByRace={resultsByRace}
         isLoading={season.isLoading || races.isLoading || drivers.isLoading}
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(360px,0.8fr)]">
-        <RaceCalendar year={year} races={races.data || []} resultsByRace={resultsByRace} isLoading={races.isLoading} />
+        <RaceCalendar year={year} races={seasonRaces} resultsByRace={resultsByRace} isLoading={races.isLoading} />
         <SeasonStandings resultsByRace={resultsByRace} isLoading={resultsLoading} />
       </div>
 
-      <QuickRaceCards year={year} races={races.data || []} resultsByRace={resultsByRace} />
+      <QuickRaceCards year={year} races={seasonRaces} resultsByRace={resultsByRace} />
     </div>
   );
 }

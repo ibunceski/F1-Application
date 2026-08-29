@@ -102,13 +102,15 @@ The present reports name 2026 as the test season.  As of this design it is an in
 
 ### Development model selection: expanding rolling origin
 
-Let `H` be the reserved final completed season and let `C` be all completed seasons before `H`.  Order `C` chronologically.  Build expanding folds with a minimum of three completed training seasons:
+Let `H` be the reserved final completed season and let `C` be all completed seasons before `H`.  Order `C` chronologically.  Build expanding folds where each fold trains on all earlier seasons and validates on the next one.  With four development seasons the executed design is a **three-fold expanding rolling origin**:
 
 ```text
-fold 1: train [C1, C2, C3]       -> validate C4
-fold 2: train [C1, C2, C3, C4]   -> validate C5
-...                               -> ...
+fold 1: train [C1]             -> validate C2
+fold 2: train [C1, C2]         -> validate C3
+fold 3: train [C1, C2, C3]     -> validate C4
 ```
+
+This corresponds to `--min-train-seasons 1` in `train_models.py` (each fold's validation season needs at least one earlier training season).  A stricter minimum (e.g. three) would collapse the folds: with four development seasons, `--min-train-seasons 2` yields two folds (validate C3, C4) and `--min-train-seasons 3` yields one (validate C4).  The reported final experiment uses the three-fold design.
 
 If the available historical range does not permit this minimum, retain the earliest feasible expanding split, report the reduced evidence, and do not replace it with random cross-validation.  A validation fold contains all eligible driver-race rows from its validation season; no rows from a later season may appear in that fold's training, feature fitting, threshold selection, or imputation.
 

@@ -27,7 +27,6 @@ import pandas as pd
 from dotenv import load_dotenv
 from lightgbm import LGBMClassifier, LGBMRegressor
 from sqlalchemy import text
-from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -61,6 +60,7 @@ if str(PROJECT_DIR) not in sys.path:
 load_dotenv(ROOT_DIR / ".env")
 load_dotenv(PROJECT_DIR / ".env", override=False)
 
+from app.ml.baseline_models import GridPositionRegressor, MedianRegressor, ZeroChangeRegressor
 from app.models.ml_feature import POST_QUALIFYING, PRE_QUALIFYING
 from ingestion.db_helpers import get_sync_engine
 
@@ -135,39 +135,6 @@ class Candidate:
     name: str
     complexity: int
     factory: Callable[[pd.Series, int], Any]
-
-
-class MedianRegressor(BaseEstimator, RegressorMixin):
-    """Historical/no-skill median baseline, learned on the fold only."""
-
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> "MedianRegressor":
-        self.value_ = float(pd.Series(y).median())
-        return self
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return np.full(len(X), self.value_, dtype=float)
-
-
-class ZeroChangeRegressor(BaseEstimator, RegressorMixin):
-    """Position gain/loss baseline: predict no net position change."""
-
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> "ZeroChangeRegressor":
-        return self
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return np.zeros(len(X), dtype=float)
-
-
-class GridPositionRegressor(BaseEstimator, RegressorMixin):
-    """Operational post-qualifying baseline using only the known starting grid."""
-
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> "GridPositionRegressor":
-        self.fallback_ = float(pd.Series(y).median())
-        return self
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        values = pd.to_numeric(X["grid_position"], errors="coerce").fillna(self.fallback_)
-        return values.to_numpy(dtype=float)
 
 
 def parse_args() -> argparse.Namespace:

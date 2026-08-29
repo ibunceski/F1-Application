@@ -12,6 +12,7 @@ interface DriverStanding {
   teamName: string;
   teamShortName: string;
   points: number;
+  positionCounts: Record<number, number>;
 }
 
 interface ConstructorStanding {
@@ -19,6 +20,7 @@ interface ConstructorStanding {
   name: string;
   shortName: string;
   points: number;
+  positionCounts: Record<number, number>;
 }
 
 interface SeasonStandingsProps {
@@ -42,6 +44,24 @@ function podiumClass(position: number) {
   return 'text-f1-muted';
 }
 
+function formatPoints(pts: number): string {
+  return Number.isInteger(pts) ? pts.toString() : pts.toFixed(1);
+}
+
+function compareStandings<T extends { points: number; name: string; positionCounts: Record<number, number> }>(a: T, b: T): number {
+  if (Math.abs(b.points - a.points) > 0.001) {
+    return b.points - a.points;
+  }
+  for (let pos = 1; pos <= 24; pos++) {
+    const countA = a.positionCounts[pos] || 0;
+    const countB = b.positionCounts[pos] || 0;
+    if (countB !== countA) {
+      return countB - countA;
+    }
+  }
+  return a.name.localeCompare(b.name);
+}
+
 function buildStandings(resultsByRace: ResultsByRace) {
   const driverMap = new Map<number, DriverStanding>();
   const constructorMap = new Map<number, ConstructorStanding>();
@@ -57,10 +77,15 @@ function buildStandings(resultsByRace: ResultsByRace) {
         teamName: result.team.name,
         teamShortName: result.team.short_name,
         points: 0,
+        positionCounts: {},
       };
-      driver.points += result.points + result.sprint_points;
+      driver.points += (result.points || 0) + (result.sprint_points || 0);
       driver.teamName = result.team.name;
       driver.teamShortName = result.team.short_name;
+      if (result.finishing_position && result.finishing_position > 0) {
+        driver.positionCounts[result.finishing_position] =
+          (driver.positionCounts[result.finishing_position] || 0) + 1;
+      }
       driverMap.set(result.driver.id, driver);
 
       const constructor = constructorMap.get(result.team.id) || {
@@ -68,14 +93,19 @@ function buildStandings(resultsByRace: ResultsByRace) {
         name: result.team.name,
         shortName: result.team.short_name,
         points: 0,
+        positionCounts: {},
       };
-      constructor.points += result.points + result.sprint_points;
+      constructor.points += (result.points || 0) + (result.sprint_points || 0);
+      if (result.finishing_position && result.finishing_position > 0) {
+        constructor.positionCounts[result.finishing_position] =
+          (constructor.positionCounts[result.finishing_position] || 0) + 1;
+      }
       constructorMap.set(result.team.id, constructor);
     });
 
   return {
-    drivers: [...driverMap.values()].sort((a, b) => b.points - a.points),
-    constructors: [...constructorMap.values()].sort((a, b) => b.points - a.points),
+    drivers: [...driverMap.values()].sort(compareStandings),
+    constructors: [...constructorMap.values()].sort(compareStandings),
   };
 }
 
@@ -119,44 +149,50 @@ export function SeasonStandings({ resultsByRace, isLoading }: SeasonStandingsPro
           ))}
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs uppercase text-f1-muted">
-            <tr>
-              <th className="px-4 py-3">Pos</th>
-              <th className="px-4 py-3">{tab === 'drivers' ? 'Driver' : 'Team'}</th>
-              {tab === 'drivers' ? <th className="px-4 py-3">Team</th> : null}
-              <th className="px-4 py-3 text-right">Points</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-f1-border">
-            {visibleRows.map((row, index) => (
-              <tr key={row.id}>
-                <td className={`px-4 py-3 font-mono font-bold ${podiumClass(index + 1)}`}>{index + 1}</td>
-                <td className="px-4 py-3 font-semibold text-f1-white">
-                  {'abbreviation' in row ? (
-                    <span>{row.name} <span className="text-f1-muted">{countryFlag(row.nationality)}</span></span>
-                  ) : (
-                    <span className="inline-flex items-center gap-2">
-                      <TeamLogo teamName={row.name} shortName={row.shortName} />
-                      {row.name}
-                    </span>
-                  )}
-                </td>
-                {'abbreviation' in row ? (
-                  <td className="px-4 py-3 text-f1-muted">
-                    <span className="inline-flex items-center gap-2">
-                      <TeamLogo teamName={row.teamName} shortName={row.teamShortName} />
-                      {row.teamName}
-                    </span>
-                  </td>
-                ) : null}
-                <td className="data-value px-4 py-3 text-right">{row.points.toFixed(0)}</td>
+      {rows.length === 0 ? (
+        <div className="p-8 text-center text-sm text-f1-muted">
+          No standings data available yet for this season.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="text-xs uppercase text-f1-muted">
+              <tr>
+                <th className="px-4 py-3">Pos</th>
+                <th className="px-4 py-3">{tab === 'drivers' ? 'Driver' : 'Team'}</th>
+                {tab === 'drivers' ? <th className="px-4 py-3">Team</th> : null}
+                <th className="px-4 py-3 text-right">Points</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-f1-border">
+              {visibleRows.map((row, index) => (
+                <tr key={row.id}>
+                  <td className={`px-4 py-3 font-mono font-bold ${podiumClass(index + 1)}`}>{index + 1}</td>
+                  <td className="px-4 py-3 font-semibold text-f1-white">
+                    {'abbreviation' in row ? (
+                      <span>{row.name} <span className="text-f1-muted">{countryFlag(row.nationality)}</span></span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <TeamLogo teamName={row.name} shortName={row.shortName} />
+                        {row.name}
+                      </span>
+                    )}
+                  </td>
+                  {'abbreviation' in row ? (
+                    <td className="px-4 py-3 text-f1-muted">
+                      <span className="inline-flex items-center gap-2">
+                        <TeamLogo teamName={row.teamName} shortName={row.teamShortName} />
+                        {row.teamName}
+                      </span>
+                    </td>
+                  ) : null}
+                  <td className="data-value px-4 py-3 text-right">{formatPoints(row.points)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {rows.length > 10 ? (
         <button
           type="button"
