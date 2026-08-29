@@ -78,7 +78,6 @@ from ml_pipeline.statistical_evaluation import (
     per_race_brier,
     per_race_mae,
     per_race_metric,
-    pooled_mae,
     pooled_pr_auc,
     pooled_roc_auc,
 )
