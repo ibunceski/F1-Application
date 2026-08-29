@@ -4,6 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMRanker
+from mord import LogisticAT, OrdinalRidge
 from sklearn.base import BaseEstimator, RegressorMixin
 from xgboost import XGBRanker
 
@@ -63,3 +64,45 @@ class XGBRankRegressor(BaseEstimator, RegressorMixin):
     @property
     def feature_importances_(self):
         return getattr(self.model_, "feature_importances_", None)
+
+
+class OrdinalRidgeRegressor(BaseEstimator, RegressorMixin):
+    def __init__(self, alpha: float = 1.0):
+        self.alpha = alpha
+
+    def fit(self, X, y):
+        y_arr = np.asarray(y)
+        self.classes_ = np.unique(y_arr)
+        y_idx = np.searchsorted(self.classes_, y_arr).astype(int)
+        self.model_ = OrdinalRidge(alpha=self.alpha)
+        self.model_.fit(X, y_idx)
+        return self
+
+    def predict(self, X):
+        idx = np.clip(np.asarray(self.model_.predict(X), dtype=int), 0, len(self.classes_) - 1)
+        return self.classes_[idx].astype(float)
+
+    @property
+    def coef_(self):
+        return getattr(self.model_, "coef_", None)
+
+
+class LogisticATRegressor(BaseEstimator, RegressorMixin):
+    def __init__(self, alpha: float = 1.0):
+        self.alpha = alpha
+
+    def fit(self, X, y):
+        y_arr = np.asarray(y)
+        self.classes_ = np.unique(y_arr)
+        y_idx = np.searchsorted(self.classes_, y_arr).astype(int)
+        self.model_ = LogisticAT(alpha=self.alpha)
+        self.model_.fit(X, y_idx)
+        return self
+
+    def predict(self, X):
+        idx = np.clip(np.asarray(self.model_.predict(X), dtype=int), 0, len(self.classes_) - 1)
+        return self.classes_[idx].astype(float)
+
+    @property
+    def coef_(self):
+        return getattr(self.model_, "coef_", None)

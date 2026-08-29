@@ -58,7 +58,7 @@ load_dotenv(ROOT_DIR / ".env")
 load_dotenv(PROJECT_DIR / ".env", override=False)
 
 from app.ml.baseline_models import GridPositionRegressor, MedianRegressor, ZeroChangeRegressor
-from app.ml.ordinal_models import LightGBMRankRegressor, XGBRankRegressor
+from app.ml.ordinal_models import LightGBMRankRegressor, LogisticATRegressor, OrdinalRidgeRegressor, XGBRankRegressor
 from app.models.ml_feature import POST_QUALIFYING, PRE_QUALIFYING
 from ingestion.db_helpers import get_sync_engine
 from ml_pipeline.hyperparameter_search import (
@@ -352,6 +352,8 @@ def candidate_factories(task: TaskName, context: str, feature_cols: list[str]) -
         if task == "position_model":
             candidates.append(Candidate("LGBMRank", 5, lambda _y, seed: build_pipeline(LightGBMRankRegressor(random_state=seed), feature_cols), ranked=True))
             candidates.append(Candidate("XGBRank", 5, lambda _y, seed: build_pipeline(XGBRankRegressor(random_state=seed), feature_cols), ranked=True))
+            candidates.append(Candidate("OrdinalRidge", 2, lambda _y, _seed: build_pipeline(OrdinalRidgeRegressor(alpha=1.0), feature_cols)))
+            candidates.append(Candidate("LogisticAT", 2, lambda _y, _seed: build_pipeline(LogisticATRegressor(alpha=1.0), feature_cols)))
         return candidates
     return [
         Candidate("PrevalenceBaseline", 0, lambda _y, _seed: build_pipeline(DummyClassifier(strategy="prior", random_state=0), feature_cols)),
