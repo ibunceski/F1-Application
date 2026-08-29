@@ -27,10 +27,8 @@ import pandas as pd
 from dotenv import load_dotenv
 from lightgbm import LGBMClassifier, LGBMRegressor
 from sqlalchemy import text
-from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, LogisticRegression, Ridge
 from sklearn.metrics import (
     accuracy_score,
@@ -49,7 +47,6 @@ from sklearn.metrics import (
     precision_recall_curve,
 )
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier, XGBRegressor
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -63,6 +60,7 @@ load_dotenv(PROJECT_DIR / ".env", override=False)
 from app.ml.baseline_models import GridPositionRegressor, MedianRegressor, ZeroChangeRegressor
 from app.models.ml_feature import POST_QUALIFYING, PRE_QUALIFYING
 from ingestion.db_helpers import get_sync_engine
+from ml_pipeline.preprocessing import build_pipeline, build_preprocessor
 from ml_pipeline.statistical_evaluation import (
     bootstrap_mean_of_per_race,
     cluster_bootstrap_pooled,
@@ -76,6 +74,7 @@ from ml_pipeline.statistical_evaluation import (
     pooled_pr_auc,
     pooled_roc_auc,
 )
+from ml_pipeline.temporal_splits import TemporalFold, generate_temporal_folds
 
 LOGGER = logging.getLogger("ml.experiments")
 
@@ -134,13 +133,6 @@ METRIC_COLUMNS = {
     "mae", "rmse", "r2", "spearman", "mean_race_spearman", "within_2_positions_accuracy", "sign_accuracy",
     "accuracy", "balanced_accuracy", "precision", "recall", "f1", "roc_auc", "pr_auc", "brier", "log_loss",
 }
-
-
-@dataclass(frozen=True)
-class TemporalFold:
-    name: str
-    train_seasons: tuple[int, ...]
-    validation_season: int
 
 
 @dataclass(frozen=True)
@@ -221,24 +213,6 @@ def validate_season_arguments(train_seasons: list[int], evaluation_seasons: list
         raise ValueError("Training and evaluation seasons must be disjoint.")
     if max(train_seasons) >= min(evaluation_seasons):
         raise ValueError("Every development season must strictly precede the final evaluation season.")
-
-
-def generate_temporal_folds(seasons: list[int], min_train_seasons: int = 3) -> list[TemporalFold]:
-    """Return expanding, season-level folds with no contemporaneous leakage."""
-    ordered = sorted(set(seasons))
-    if len(ordered) != len(seasons):
-        raise ValueError("Temporal folds require unique seasons.")
-    if len(ordered) <= min_train_seasons:
-        raise ValueError("Insufficient seasons for an expanding temporal validation fold.")
-    return [
-        TemporalFold(
-            name=f"fold_{index - min_train_seasons + 1}_{season}",
-            train_seasons=tuple(ordered[:index]),
-            validation_season=season,
-        )
-        for index, season in enumerate(ordered)
-        if index >= min_train_seasons
-    ]
 
 
 def assert_no_future_data(train_df: pd.DataFrame, validation_df: pd.DataFrame) -> None:
@@ -338,17 +312,6 @@ def load_feature_dataframe(feature_context: str, allowed_seasons: list[int]) -> 
     if feature_context == POST_QUALIFYING:
         df = df[df["grid_position"].notna() & df["qualifying_position"].notna()].copy()
     return df.sort_values(["season_year", "race_date", "race_id", "driver_id"]).reset_index(drop=True)
-
-
-def build_preprocessor(feature_cols: list[str]) -> ColumnTransformer:
-    return ColumnTransformer(
-        [("numeric", Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]), feature_cols)],
-        remainder="drop",
-    )
-
-
-def build_pipeline(estimator: Any, feature_cols: list[str]) -> Pipeline:
-    return Pipeline([("preprocessor", build_preprocessor(feature_cols)), ("model", estimator)])
 
 
 def _class_weight_scale(y: pd.Series) -> float:
