@@ -120,6 +120,8 @@ def select_hyperparameters(
     """Select best config on an expanding inner split of train_df's seasons only."""
     is_classification = task in _CLASSIFICATION
     seasons = sorted(train_df["season_year"].unique().tolist())
+    if len(seasons) < 2:
+        return space[0], [{"config": space[0], "inner_score_mean": None, "inner_scores": []}]
     inner_folds = generate_temporal_folds(seasons, min_train_seasons=1)
     if not inner_folds:
         return space[0], [{"config": space[0], "inner_score_mean": None, "inner_scores": []}]

@@ -43,3 +43,16 @@ class HyperparameterSearchTests(unittest.TestCase):
         )
         self.assertIn("alpha", best)
         self.assertEqual(len(records), len(REGRESSION_SEARCH_SPACES["Ridge"]))
+
+    def test_select_hyperparameters_returns_default_on_single_season(self):
+        train = pd.DataFrame({
+            "season_year": [2021, 2021, 2021, 2021],
+            "driver_recent_form": [2.0, 12.0, 3.0, 13.0],
+            "actual_finishing_position": [1.0, 11.0, 2.0, 12.0],
+        })
+        best, records = select_hyperparameters(
+            "Ridge", REGRESSION_SEARCH_SPACES["Ridge"], train,
+            "actual_finishing_position", ["driver_recent_form"], "position_model", seed=42,
+        )
+        self.assertEqual(best, REGRESSION_SEARCH_SPACES["Ridge"][0])
+        self.assertEqual(len(records), 1)
