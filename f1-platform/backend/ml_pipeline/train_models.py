@@ -60,6 +60,12 @@ load_dotenv(PROJECT_DIR / ".env", override=False)
 from app.ml.baseline_models import GridPositionRegressor, MedianRegressor, ZeroChangeRegressor
 from app.models.ml_feature import POST_QUALIFYING, PRE_QUALIFYING
 from ingestion.db_helpers import get_sync_engine
+from ml_pipeline.hyperparameter_search import (
+    CLASSIFICATION_SEARCH_SPACES,
+    REGRESSION_SEARCH_SPACES,
+    build_model_from_config,
+    select_hyperparameters,
+)
 from ml_pipeline.preprocessing import build_pipeline, build_preprocessor
 from ml_pipeline.statistical_evaluation import (
     bootstrap_mean_of_per_race,
@@ -140,6 +146,7 @@ class Candidate:
     name: str
     complexity: int
     factory: Callable[[pd.Series, int], Any]
+    space: tuple[dict[str, Any], ...] = ()
 
 
 def parse_args() -> argparse.Namespace:
@@ -333,20 +340,20 @@ def candidate_factories(task: TaskName, context: str, feature_cols: list[str]) -
             candidates.append(Candidate("GridPositionBaseline", 0, lambda _y, _seed: GridPositionRegressor()))
         candidates.extend(
             [
-                Candidate("Ridge", 1, lambda _y, _seed: build_pipeline(Ridge(alpha=1.0), feature_cols)),
-                Candidate("ElasticNet", 2, lambda _y, _seed: build_pipeline(ElasticNet(alpha=0.05, l1_ratio=0.5, max_iter=10000), feature_cols)),
-                Candidate("RandomForestRegressor", 3, lambda _y, seed: build_pipeline(RandomForestRegressor(n_estimators=300, max_depth=10, min_samples_leaf=2, random_state=seed, n_jobs=1), feature_cols)),
-                Candidate("XGBRegressor", 4, lambda _y, seed: build_pipeline(XGBRegressor(n_estimators=250, max_depth=5, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, random_state=seed, n_jobs=1), feature_cols)),
-                Candidate("LGBMRegressor", 4, lambda _y, seed: build_pipeline(LGBMRegressor(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, random_state=seed, n_jobs=1, verbose=-1), feature_cols)),
+                Candidate("Ridge", 1, lambda _y, _seed: build_pipeline(Ridge(alpha=1.0), feature_cols), tuple(REGRESSION_SEARCH_SPACES["Ridge"])),
+                Candidate("ElasticNet", 2, lambda _y, _seed: build_pipeline(ElasticNet(alpha=0.05, l1_ratio=0.5, max_iter=10000), feature_cols), tuple(REGRESSION_SEARCH_SPACES["ElasticNet"])),
+                Candidate("RandomForestRegressor", 3, lambda _y, seed: build_pipeline(RandomForestRegressor(n_estimators=300, max_depth=10, min_samples_leaf=2, random_state=seed, n_jobs=1), feature_cols), tuple(REGRESSION_SEARCH_SPACES["RandomForestRegressor"])),
+                Candidate("XGBRegressor", 4, lambda _y, seed: build_pipeline(XGBRegressor(n_estimators=250, max_depth=5, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, random_state=seed, n_jobs=1), feature_cols), tuple(REGRESSION_SEARCH_SPACES["XGBRegressor"])),
+                Candidate("LGBMRegressor", 4, lambda _y, seed: build_pipeline(LGBMRegressor(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, random_state=seed, n_jobs=1, verbose=-1), feature_cols), tuple(REGRESSION_SEARCH_SPACES["LGBMRegressor"])),
             ]
         )
         return candidates
     return [
         Candidate("PrevalenceBaseline", 0, lambda _y, _seed: build_pipeline(DummyClassifier(strategy="prior", random_state=0), feature_cols)),
-        Candidate("LogisticRegression", 1, lambda _y, seed: build_pipeline(LogisticRegression(C=1.0, max_iter=3000, class_weight="balanced", random_state=seed), feature_cols)),
-        Candidate("RandomForestClassifier", 3, lambda _y, seed: build_pipeline(RandomForestClassifier(n_estimators=300, max_depth=10, min_samples_leaf=2, class_weight="balanced", random_state=seed, n_jobs=1), feature_cols)),
-        Candidate("XGBClassifier", 4, lambda y, seed: build_pipeline(XGBClassifier(n_estimators=250, max_depth=5, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, scale_pos_weight=_class_weight_scale(y), random_state=seed, n_jobs=1, eval_metric="logloss"), feature_cols)),
-        Candidate("LGBMClassifier", 4, lambda y, seed: build_pipeline(LGBMClassifier(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, class_weight="balanced", random_state=seed, n_jobs=1, verbose=-1), feature_cols)),
+        Candidate("LogisticRegression", 1, lambda _y, seed: build_pipeline(LogisticRegression(C=1.0, max_iter=3000, class_weight="balanced", random_state=seed), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["LogisticRegression"])),
+        Candidate("RandomForestClassifier", 3, lambda _y, seed: build_pipeline(RandomForestClassifier(n_estimators=300, max_depth=10, min_samples_leaf=2, class_weight="balanced", random_state=seed, n_jobs=1), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["RandomForestClassifier"])),
+        Candidate("XGBClassifier", 4, lambda y, seed: build_pipeline(XGBClassifier(n_estimators=250, max_depth=5, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, scale_pos_weight=_class_weight_scale(y), random_state=seed, n_jobs=1, eval_metric="logloss"), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["XGBClassifier"])),
+        Candidate("LGBMClassifier", 4, lambda y, seed: build_pipeline(LGBMClassifier(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, class_weight="balanced", random_state=seed, n_jobs=1, verbose=-1), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["LGBMClassifier"])),
     ]
 
 
@@ -472,6 +479,7 @@ def evaluate_candidate(
     phase: str,
     analysis_type: str = "candidate_model",
     ablation: str | None = None,
+    hyperparams: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], pd.DataFrame, Any]:
     target = TASK_TARGETS[task]
     train_target = train_df[train_df[target].notna()].copy()
@@ -489,7 +497,11 @@ def evaluate_candidate(
         y_train = train_target[target].astype(int)
     else:
         y_train = train_target[target].astype(float)
-    model = candidate.factory(y_train, seed)
+    model = (
+        build_pipeline(build_model_from_config(candidate.name, hyperparams, seed, feature_cols, task, y_train), feature_cols)
+        if hyperparams is not None and candidate.space
+        else candidate.factory(y_train, seed)
+    )
     model.fit(train_target[feature_cols], y_train)
     if kind == "classification":
         probabilities = model.predict_proba(validation_target[feature_cols])[:, 1]
@@ -1033,6 +1045,7 @@ def run_experiment(args: argparse.Namespace) -> Path:
 
     result_rows: list[dict[str, Any]] = []
     prediction_frames: list[pd.DataFrame] = []
+    selected_configs: dict[str, Any] = {}
     candidates_by_task: dict[tuple[str, TaskName], list[Candidate]] = {}
     for context in contexts:
         frame = frames[context]
@@ -1043,9 +1056,16 @@ def run_experiment(args: argparse.Namespace) -> Path:
                 train_df = frame[frame["season_year"].isin(fold.train_seasons)].copy()
                 validation_df = frame[frame["season_year"] == fold.validation_season].copy()
                 for candidate_number, candidate in enumerate(candidates, start=1):
+                    hyperparams = None
+                    if candidate.space:
+                        hyperparams, _records = select_hyperparameters(
+                            candidate.name, list(candidate.space), train_df, TASK_TARGETS[task],
+                            CONTEXT_FEATURE_COLS[context], task, args.seed + fold_number * 100 + candidate_number,
+                        )
+                        selected_configs[f"{context}:{task}:{fold.name}:{candidate.name}"] = hyperparams
                     result, prediction_df, _ = evaluate_candidate(
                         candidate, task, context, train_df, validation_df, CONTEXT_FEATURE_COLS[context], fold.name,
-                        args.seed + fold_number * 100 + candidate_number, "validation",
+                        args.seed + fold_number * 100 + candidate_number, "validation", hyperparams=hyperparams,
                     )
                     result_rows.append(result)
                     prediction_frames.append(prediction_df)
@@ -1131,6 +1151,7 @@ def run_experiment(args: argparse.Namespace) -> Path:
         "platform": platform.platform(),
         "candidate_algorithms": {f"{context}:{task}": [candidate.name for candidate in candidates] for (context, task), candidates in candidates_by_task.items()},
         "feature_ablations": {context: feature_ablation_sets(context) for context in contexts},
+        "selected_hyperparameters": selected_configs,
         "configuration": {
             "min_train_seasons": args.min_train_seasons,
             "validation_strategy": "expanding_rolling_origin_by_completed_season",

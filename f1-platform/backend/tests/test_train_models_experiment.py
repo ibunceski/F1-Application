@@ -174,5 +174,17 @@ class SignificanceReportTests(unittest.TestCase):
         self.assertIn("champion_ci", report[key])
 
 
+class SearchIntegrationTests(unittest.TestCase):
+    def test_candidate_carries_a_search_space(self):
+        cands = candidate_factories("position_model", "pre_qualifying", ["driver_recent_form"])
+        ridge = next(c for c in cands if c.name == "Ridge")
+        self.assertGreaterEqual(len(ridge.space), 1)
+
+    def test_baseline_candidates_have_no_search_space(self):
+        cands = candidate_factories("position_model", "pre_qualifying", ["driver_recent_form"])
+        median = next(c for c in cands if c.name == "MedianBaseline")
+        self.assertEqual(median.space, ())
+
+
 if __name__ == "__main__":
     unittest.main()
