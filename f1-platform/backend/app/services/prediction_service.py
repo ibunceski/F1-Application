@@ -29,8 +29,6 @@ PRE_QUALIFYING_FEATURE_COLS = [
     "circuit_history_avg_finish",
     "circuit_history_dnf_rate",
     "dnf_rate_recent",
-    "weather_is_wet",
-    "avg_track_temp_c",
 ]
 
 POST_QUALIFYING_FEATURE_COLS = [
@@ -43,8 +41,6 @@ POST_QUALIFYING_FEATURE_COLS = [
     "circuit_history_avg_finish",
     "circuit_history_dnf_rate",
     "dnf_rate_recent",
-    "weather_is_wet",
-    "avg_track_temp_c",
 ]
 DEFAULT_FEATURE_COLS = {
     "pre_qualifying": PRE_QUALIFYING_FEATURE_COLS,

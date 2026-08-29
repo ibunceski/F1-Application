@@ -60,6 +60,9 @@ def write_experiment(root: Path, experiment_id: str, completed_at: str, evaluati
     figures = directory / "figures"
     figures.mkdir()
     (figures / "leaderboard_position_model.png").write_bytes(b"png")
+    champions = directory / "champions"
+    champions.mkdir()
+    (champions / "model.joblib").write_bytes(b"joblib")
 
 
 class ModelLabApiTests(unittest.TestCase):

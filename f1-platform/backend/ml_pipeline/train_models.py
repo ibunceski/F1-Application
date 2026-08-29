@@ -27,11 +27,8 @@ import pandas as pd
 from dotenv import load_dotenv
 from lightgbm import LGBMClassifier, LGBMRegressor
 from sqlalchemy import text
-from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, LogisticRegression, Ridge
 from sklearn.metrics import (
     accuracy_score,
@@ -49,8 +46,8 @@ from sklearn.metrics import (
     roc_curve,
     precision_recall_curve,
 )
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier, XGBRegressor
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -61,8 +58,30 @@ if str(PROJECT_DIR) not in sys.path:
 load_dotenv(ROOT_DIR / ".env")
 load_dotenv(PROJECT_DIR / ".env", override=False)
 
+from app.ml.baseline_models import GridPositionRegressor, MedianRegressor, ZeroChangeRegressor
+from app.ml.ordinal_models import LightGBMRankRegressor, LogisticATRegressor, OrdinalRidgeRegressor, XGBRankRegressor
 from app.models.ml_feature import POST_QUALIFYING, PRE_QUALIFYING
 from ingestion.db_helpers import get_sync_engine
+from ml_pipeline.hyperparameter_search import (
+    CLASSIFICATION_SEARCH_SPACES,
+    REGRESSION_SEARCH_SPACES,
+    build_model_from_config,
+    select_hyperparameters,
+)
+from ml_pipeline.preprocessing import build_pipeline, build_preprocessor
+from ml_pipeline.statistical_evaluation import (
+    bootstrap_mean_of_per_race,
+    cluster_bootstrap_pooled,
+    paired_bootstrap_ci,
+    paired_metric_differences,
+    paired_permutation_test,
+    per_race_brier,
+    per_race_mae,
+    per_race_metric,
+    pooled_pr_auc,
+    pooled_roc_auc,
+)
+from ml_pipeline.temporal_splits import TemporalFold, generate_temporal_folds
 
 LOGGER = logging.getLogger("ml.experiments")
 
@@ -124,50 +143,12 @@ METRIC_COLUMNS = {
 
 
 @dataclass(frozen=True)
-class TemporalFold:
-    name: str
-    train_seasons: tuple[int, ...]
-    validation_season: int
-
-
-@dataclass(frozen=True)
 class Candidate:
     name: str
     complexity: int
     factory: Callable[[pd.Series, int], Any]
-
-
-class MedianRegressor(BaseEstimator, RegressorMixin):
-    """Historical/no-skill median baseline, learned on the fold only."""
-
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> "MedianRegressor":
-        self.value_ = float(pd.Series(y).median())
-        return self
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return np.full(len(X), self.value_, dtype=float)
-
-
-class ZeroChangeRegressor(BaseEstimator, RegressorMixin):
-    """Position gain/loss baseline: predict no net position change."""
-
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> "ZeroChangeRegressor":
-        return self
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return np.zeros(len(X), dtype=float)
-
-
-class GridPositionRegressor(BaseEstimator, RegressorMixin):
-    """Operational post-qualifying baseline using only the known starting grid."""
-
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> "GridPositionRegressor":
-        self.fallback_ = float(pd.Series(y).median())
-        return self
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        values = pd.to_numeric(X["grid_position"], errors="coerce").fillna(self.fallback_)
-        return values.to_numpy(dtype=float)
+    space: tuple[dict[str, Any], ...] = ()
+    ranked: bool = False
 
 
 def parse_args() -> argparse.Namespace:
@@ -241,24 +222,6 @@ def validate_season_arguments(train_seasons: list[int], evaluation_seasons: list
         raise ValueError("Training and evaluation seasons must be disjoint.")
     if max(train_seasons) >= min(evaluation_seasons):
         raise ValueError("Every development season must strictly precede the final evaluation season.")
-
-
-def generate_temporal_folds(seasons: list[int], min_train_seasons: int = 3) -> list[TemporalFold]:
-    """Return expanding, season-level folds with no contemporaneous leakage."""
-    ordered = sorted(set(seasons))
-    if len(ordered) != len(seasons):
-        raise ValueError("Temporal folds require unique seasons.")
-    if len(ordered) <= min_train_seasons:
-        raise ValueError("Insufficient seasons for an expanding temporal validation fold.")
-    return [
-        TemporalFold(
-            name=f"fold_{index - min_train_seasons + 1}_{season}",
-            train_seasons=tuple(ordered[:index]),
-            validation_season=season,
-        )
-        for index, season in enumerate(ordered)
-        if index >= min_train_seasons
-    ]
 
 
 def assert_no_future_data(train_df: pd.DataFrame, validation_df: pd.DataFrame) -> None:
@@ -360,17 +323,6 @@ def load_feature_dataframe(feature_context: str, allowed_seasons: list[int]) -> 
     return df.sort_values(["season_year", "race_date", "race_id", "driver_id"]).reset_index(drop=True)
 
 
-def build_preprocessor(feature_cols: list[str]) -> ColumnTransformer:
-    return ColumnTransformer(
-        [("numeric", Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]), feature_cols)],
-        remainder="drop",
-    )
-
-
-def build_pipeline(estimator: Any, feature_cols: list[str]) -> Pipeline:
-    return Pipeline([("preprocessor", build_preprocessor(feature_cols)), ("model", estimator)])
-
-
 def _class_weight_scale(y: pd.Series) -> float:
     positives = int((y.astype(int) == 1).sum())
     negatives = int((y.astype(int) == 0).sum())
@@ -390,20 +342,29 @@ def candidate_factories(task: TaskName, context: str, feature_cols: list[str]) -
             candidates.append(Candidate("GridPositionBaseline", 0, lambda _y, _seed: GridPositionRegressor()))
         candidates.extend(
             [
-                Candidate("Ridge", 1, lambda _y, _seed: build_pipeline(Ridge(alpha=1.0), feature_cols)),
-                Candidate("ElasticNet", 2, lambda _y, _seed: build_pipeline(ElasticNet(alpha=0.05, l1_ratio=0.5, max_iter=10000), feature_cols)),
-                Candidate("RandomForestRegressor", 3, lambda _y, seed: build_pipeline(RandomForestRegressor(n_estimators=300, max_depth=10, min_samples_leaf=2, random_state=seed, n_jobs=1), feature_cols)),
-                Candidate("XGBRegressor", 4, lambda _y, seed: build_pipeline(XGBRegressor(n_estimators=250, max_depth=5, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, random_state=seed, n_jobs=1), feature_cols)),
-                Candidate("LGBMRegressor", 4, lambda _y, seed: build_pipeline(LGBMRegressor(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, random_state=seed, n_jobs=1, verbose=-1), feature_cols)),
+                Candidate("Ridge", 1, lambda _y, _seed: build_pipeline(Ridge(alpha=1.0), feature_cols), tuple(REGRESSION_SEARCH_SPACES["Ridge"])),
+                Candidate("ElasticNet", 2, lambda _y, _seed: build_pipeline(ElasticNet(alpha=0.05, l1_ratio=0.5, max_iter=10000), feature_cols), tuple(REGRESSION_SEARCH_SPACES["ElasticNet"])),
+                Candidate("RandomForestRegressor", 3, lambda _y, seed: build_pipeline(RandomForestRegressor(n_estimators=300, max_depth=10, min_samples_leaf=2, random_state=seed, n_jobs=1), feature_cols), tuple(REGRESSION_SEARCH_SPACES["RandomForestRegressor"])),
+                Candidate("XGBRegressor", 4, lambda _y, seed: build_pipeline(XGBRegressor(n_estimators=250, max_depth=5, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, random_state=seed, n_jobs=1), feature_cols), tuple(REGRESSION_SEARCH_SPACES["XGBRegressor"])),
+                Candidate("LGBMRegressor", 4, lambda _y, seed: build_pipeline(LGBMRegressor(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, random_state=seed, n_jobs=1, verbose=-1), feature_cols), tuple(REGRESSION_SEARCH_SPACES["LGBMRegressor"])),
             ]
         )
+        if task == "position_model":
+            candidates.append(Candidate("LGBMRank", 5, lambda _y, seed: build_pipeline(LightGBMRankRegressor(random_state=seed), feature_cols), ranked=True))
+            candidates.append(Candidate("XGBRank", 5, lambda _y, seed: build_pipeline(XGBRankRegressor(random_state=seed), feature_cols), ranked=True))
+            candidates.append(Candidate("OrdinalRidge", 2, lambda _y, _seed: build_pipeline(OrdinalRidgeRegressor(alpha=1.0), feature_cols)))
+            candidates.append(Candidate("LogisticAT", 2, lambda _y, _seed: build_pipeline(LogisticATRegressor(alpha=1.0), feature_cols)))
         return candidates
     return [
         Candidate("PrevalenceBaseline", 0, lambda _y, _seed: build_pipeline(DummyClassifier(strategy="prior", random_state=0), feature_cols)),
-        Candidate("LogisticRegression", 1, lambda _y, seed: build_pipeline(LogisticRegression(C=1.0, max_iter=3000, class_weight="balanced", random_state=seed), feature_cols)),
-        Candidate("RandomForestClassifier", 3, lambda _y, seed: build_pipeline(RandomForestClassifier(n_estimators=300, max_depth=10, min_samples_leaf=2, class_weight="balanced", random_state=seed, n_jobs=1), feature_cols)),
-        Candidate("XGBClassifier", 4, lambda y, seed: build_pipeline(XGBClassifier(n_estimators=250, max_depth=5, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, scale_pos_weight=_class_weight_scale(y), random_state=seed, n_jobs=1, eval_metric="logloss"), feature_cols)),
-        Candidate("LGBMClassifier", 4, lambda y, seed: build_pipeline(LGBMClassifier(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, class_weight="balanced", random_state=seed, n_jobs=1, verbose=-1), feature_cols)),
+        Candidate("LogisticRegression", 1, lambda _y, seed: build_pipeline(LogisticRegression(C=1.0, max_iter=3000, class_weight="balanced", random_state=seed), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["LogisticRegression"])),
+        Candidate("RandomForestClassifier", 3, lambda _y, seed: build_pipeline(RandomForestClassifier(n_estimators=300, max_depth=10, min_samples_leaf=2, class_weight="balanced", random_state=seed, n_jobs=1), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["RandomForestClassifier"])),
+        Candidate("XGBClassifier", 4, lambda y, seed: build_pipeline(XGBClassifier(n_estimators=250, max_depth=5, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, scale_pos_weight=_class_weight_scale(y), random_state=seed, n_jobs=1, eval_metric="logloss"), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["XGBClassifier"])),
+        Candidate("LGBMClassifier", 4, lambda y, seed: build_pipeline(LGBMClassifier(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, class_weight="balanced", random_state=seed, n_jobs=1, verbose=-1), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["LGBMClassifier"])),
+        Candidate("RandomForestClassifierCalibrated", 5,
+                  lambda _y, seed: build_pipeline(CalibratedClassifierCV(RandomForestClassifier(n_estimators=300, max_depth=10, min_samples_leaf=2, class_weight="balanced", random_state=seed, n_jobs=1), method="sigmoid", cv=3, n_jobs=1), feature_cols)),
+        Candidate("LGBMClassifierCalibrated", 5,
+                  lambda _y, seed: build_pipeline(CalibratedClassifierCV(LGBMClassifier(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, class_weight="balanced", random_state=seed, n_jobs=1, verbose=-1), method="sigmoid", cv=3, n_jobs=1), feature_cols)),
     ]
 
 
@@ -435,6 +396,12 @@ def mean_per_race_spearman(y_true: pd.Series, predictions: np.ndarray, race_ids:
     ]
     valid = [float(value) for value in correlations if pd.notna(value)]
     return float(np.mean(valid)) if valid else float("nan")
+
+
+def ranked_position_predictions(race_ids: pd.Series, scores: np.ndarray) -> np.ndarray:
+    """Convert ranking scores to within-race predicted positions (rank 1 = best)."""
+    frame = pd.DataFrame({"race_id": race_ids.to_numpy(), "score": np.asarray(scores)})
+    return frame.groupby("race_id")["score"].rank(method="first", ascending=False).to_numpy(dtype=float)
 
 
 def regression_metrics(y_true: pd.Series, predictions: np.ndarray, task: TaskName, race_ids: pd.Series | None = None) -> dict[str, float]:
@@ -529,6 +496,7 @@ def evaluate_candidate(
     phase: str,
     analysis_type: str = "candidate_model",
     ablation: str | None = None,
+    hyperparams: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], pd.DataFrame, Any]:
     target = TASK_TARGETS[task]
     train_target = train_df[train_df[target].notna()].copy()
@@ -546,18 +514,32 @@ def evaluate_candidate(
         y_train = train_target[target].astype(int)
     else:
         y_train = train_target[target].astype(float)
-    model = candidate.factory(y_train, seed)
-    model.fit(train_target[feature_cols], y_train)
-    if kind == "classification":
-        probabilities = model.predict_proba(validation_target[feature_cols])[:, 1]
-        metrics = classification_metrics(validation_target[target].astype(int), probabilities, threshold)
-        predictions = (probabilities >= threshold).astype(int)
-        row_prediction = probabilities
-    else:
-        predictions = np.asarray(model.predict(validation_target[feature_cols]), dtype=float)
+    if candidate.ranked:
+        groups = train_target["race_id"].to_numpy()
+        model = candidate.factory(y_train, seed)
+        model.fit(train_target[feature_cols], y_train, **{"model__group": groups})
+        raw = np.asarray(model.predict(validation_target[feature_cols]), dtype=float)
+        predictions = ranked_position_predictions(validation_target["race_id"], raw)
         probabilities = np.full(len(predictions), np.nan)
         metrics = regression_metrics(validation_target[target].astype(float), predictions, task, validation_target["race_id"])
         row_prediction = predictions
+    else:
+        model = (
+            build_pipeline(build_model_from_config(candidate.name, hyperparams, seed, feature_cols, task, y_train), feature_cols)
+            if hyperparams is not None and candidate.space
+            else candidate.factory(y_train, seed)
+        )
+        model.fit(train_target[feature_cols], y_train)
+        if kind == "classification":
+            probabilities = model.predict_proba(validation_target[feature_cols])[:, 1]
+            metrics = classification_metrics(validation_target[target].astype(int), probabilities, threshold)
+            predictions = (probabilities >= threshold).astype(int)
+            row_prediction = probabilities
+        else:
+            predictions = np.asarray(model.predict(validation_target[feature_cols]), dtype=float)
+            probabilities = np.full(len(predictions), np.nan)
+            metrics = regression_metrics(validation_target[target].astype(float), predictions, task, validation_target["race_id"])
+            row_prediction = predictions
     result = {
         "phase": phase,
         "fold": fold_name,
@@ -650,6 +632,66 @@ def aggregate_ablation_results(results: pd.DataFrame) -> pd.DataFrame:
         if not best.empty:
             aggregate.loc[best.index[0], "best_ablation"] = True
     return aggregate.sort_values(["context", "task", "rank", "ablation"]).reset_index(drop=True)
+
+
+def build_significance_report(
+    oof_predictions: pd.DataFrame,
+    aggregate: pd.DataFrame,
+    final_results: pd.DataFrame,
+    seed: int,
+) -> dict[str, Any]:
+    """Confidence intervals and paired champion-vs-runner-up tests, clustered by race."""
+    validation = oof_predictions[
+        (oof_predictions["phase"] == "validation")
+        & (oof_predictions["analysis_type"] == "candidate_model")
+    ]
+    report: dict[str, Any] = {}
+    for (context, task), group in aggregate.groupby(["context", "task"], sort=False):
+        ranked = group[group["rank"].notna()].sort_values("rank")
+        if len(ranked) < 2:
+            continue
+        champion = str(ranked.iloc[0]["algorithm"])
+        runner_up = str(ranked.iloc[1]["algorithm"])
+        primary = PRIMARY_METRIC[task]
+        is_classification = task in {"top10_model", "podium_model"}
+
+        champ = validation[
+            (validation["context"] == context)
+            & (validation["task"] == task)
+            & (validation["algorithm"] == champion)
+        ]
+        runner = validation[
+            (validation["context"] == context)
+            & (validation["task"] == task)
+            & (validation["algorithm"] == runner_up)
+        ]
+        if champ.empty or runner.empty:
+            continue
+
+        if is_classification:
+            metric_fn = pooled_roc_auc if primary == "roc_auc" else pooled_pr_auc
+            champ_ci = cluster_bootstrap_pooled(champ, metric_fn, seed=seed)
+            runner_ci = cluster_bootstrap_pooled(runner, metric_fn, seed=seed)
+            paired_a = per_race_metric(champ, per_race_brier)
+            paired_b = per_race_metric(runner, per_race_brier)
+        else:
+            champ_ci = bootstrap_mean_of_per_race(per_race_metric(champ, per_race_mae), seed=seed)
+            runner_ci = bootstrap_mean_of_per_race(per_race_metric(runner, per_race_mae), seed=seed)
+            paired_a = per_race_metric(champ, per_race_mae)
+            paired_b = per_race_metric(runner, per_race_mae)
+
+        differences = paired_metric_differences(paired_a, paired_b)
+        report[f"{context}:{task}"] = {
+            "champion": champion,
+            "runner_up": runner_up,
+            "primary_metric": primary,
+            "champion_ci": champ_ci,
+            "runner_up_ci": runner_ci,
+            "paired_p_value": paired_permutation_test(differences, seed=seed),
+            "paired_difference_ci": paired_bootstrap_ci(differences, seed=seed),
+            "paired_race_count": int(len(differences)),
+        }
+    return report
 
 
 def data_fingerprint(df: pd.DataFrame, feature_cols: list[str]) -> dict[str, Any]:
@@ -771,6 +813,7 @@ def write_experiment_artifacts(
     ablation_results: pd.DataFrame | None = None,
     ablation_aggregate: pd.DataFrame | None = None,
     ablation_predictions: pd.DataFrame | None = None,
+    significance: dict | None = None,
 ) -> None:
     """Write the immutable, auditable artifact set for one completed run."""
     write_json(experiment_dir / "manifest.json", manifest)
@@ -791,6 +834,7 @@ def write_experiment_artifacts(
         ablation_results.to_csv(ablation_dir / "model_results.csv", index=False)
         ablation_aggregate.to_csv(ablation_dir / "aggregate_results.csv", index=False)
         ablation_predictions.to_csv(ablation_dir / "out_of_fold_predictions.csv.gz", index=False, compression="gzip")
+    write_json(experiment_dir / "significance.json", significance or {})
     write_markdown_report(experiment_dir / "report.md", manifest, aggregate, final_results)
 
 
@@ -806,6 +850,7 @@ def validate_artifact_schema(experiment_dir: Path) -> None:
         "reliability_bins.csv",
         "final_holdout_results.csv",
         "report.md",
+        "significance.json",
     }
     missing = sorted(name for name in required if not (experiment_dir / name).is_file())
     if missing:
@@ -1027,6 +1072,7 @@ def run_experiment(args: argparse.Namespace) -> Path:
 
     result_rows: list[dict[str, Any]] = []
     prediction_frames: list[pd.DataFrame] = []
+    selected_configs: dict[str, Any] = {}
     candidates_by_task: dict[tuple[str, TaskName], list[Candidate]] = {}
     for context in contexts:
         frame = frames[context]
@@ -1037,9 +1083,16 @@ def run_experiment(args: argparse.Namespace) -> Path:
                 train_df = frame[frame["season_year"].isin(fold.train_seasons)].copy()
                 validation_df = frame[frame["season_year"] == fold.validation_season].copy()
                 for candidate_number, candidate in enumerate(candidates, start=1):
+                    hyperparams = None
+                    if candidate.space:
+                        hyperparams, _records = select_hyperparameters(
+                            candidate.name, list(candidate.space), train_df, TASK_TARGETS[task],
+                            CONTEXT_FEATURE_COLS[context], task, args.seed + fold_number * 100 + candidate_number,
+                        )
+                        selected_configs[f"{context}:{task}:{fold.name}:{candidate.name}"] = hyperparams
                     result, prediction_df, _ = evaluate_candidate(
                         candidate, task, context, train_df, validation_df, CONTEXT_FEATURE_COLS[context], fold.name,
-                        args.seed + fold_number * 100 + candidate_number, "validation",
+                        args.seed + fold_number * 100 + candidate_number, "validation", hyperparams=hyperparams,
                     )
                     result_rows.append(result)
                     prediction_frames.append(prediction_df)
@@ -1125,6 +1178,7 @@ def run_experiment(args: argparse.Namespace) -> Path:
         "platform": platform.platform(),
         "candidate_algorithms": {f"{context}:{task}": [candidate.name for candidate in candidates] for (context, task), candidates in candidates_by_task.items()},
         "feature_ablations": {context: feature_ablation_sets(context) for context in contexts},
+        "selected_hyperparameters": selected_configs,
         "configuration": {
             "min_train_seasons": args.min_train_seasons,
             "validation_strategy": "expanding_rolling_origin_by_completed_season",
@@ -1134,6 +1188,7 @@ def run_experiment(args: argparse.Namespace) -> Path:
             "feature_ablation_method": "same_candidate_matrix_and_temporal_folds_with_validation_only_selection",
         },
     }
+    significance = build_significance_report(oof_predictions, aggregate, final_results, args.seed)
     write_experiment_artifacts(
         experiment_dir,
         manifest,
@@ -1146,6 +1201,7 @@ def run_experiment(args: argparse.Namespace) -> Path:
         ablation_results,
         ablation_aggregate,
         ablation_predictions,
+        significance=significance,
     )
     validate_artifact_schema(experiment_dir)
     if args.generate_plots:

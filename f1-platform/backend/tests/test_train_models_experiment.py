@@ -20,6 +20,7 @@ from ml_pipeline.train_models import (  # noqa: E402
     MedianRegressor,
     ZeroChangeRegressor,
     assert_no_future_data,
+    build_significance_report,
     calibration_reliability,
     candidate_factories,
     choose_classification_threshold,
@@ -136,6 +137,66 @@ class TrainModelExperimentTests(unittest.TestCase):
             generated = generate_thesis_figures(artifact_dir)
             self.assertTrue(generated)
             self.assertTrue(all(path.is_file() for path in generated))
+
+
+class SignificanceReportTests(unittest.TestCase):
+    def test_build_significance_report_pairs_champion_and_runner_up(self):
+        oof = pd.DataFrame([
+            {"phase": "validation", "fold": "fold_1_2024", "context": "pre_qualifying",
+             "task": "position_model", "algorithm": "Ridge", "analysis_type": "candidate_model",
+             "race_id": 1, "driver_id": 1, "season_year": 2024, "actual": 1.0,
+             "prediction": 1.0, "probability": np.nan, "threshold": np.nan},
+            {"phase": "validation", "fold": "fold_1_2024", "context": "pre_qualifying",
+             "task": "position_model", "algorithm": "Ridge", "analysis_type": "candidate_model",
+             "race_id": 2, "driver_id": 2, "season_year": 2024, "actual": 2.0,
+             "prediction": 2.0, "probability": np.nan, "threshold": np.nan},
+            {"phase": "validation", "fold": "fold_1_2024", "context": "pre_qualifying",
+             "task": "position_model", "algorithm": "ElasticNet", "analysis_type": "candidate_model",
+             "race_id": 1, "driver_id": 1, "season_year": 2024, "actual": 1.0,
+             "prediction": 8.0, "probability": np.nan, "threshold": np.nan},
+            {"phase": "validation", "fold": "fold_1_2024", "context": "pre_qualifying",
+             "task": "position_model", "algorithm": "ElasticNet", "analysis_type": "candidate_model",
+             "race_id": 2, "driver_id": 2, "season_year": 2024, "actual": 2.0,
+             "prediction": 9.0, "probability": np.nan, "threshold": np.nan},
+        ])
+        aggregate = pd.DataFrame([
+            {"context": "pre_qualifying", "task": "position_model", "algorithm": "Ridge",
+             "primary_metric": "mae", "primary_score": 1.0, "rank": 1.0, "champion": True},
+            {"context": "pre_qualifying", "task": "position_model", "algorithm": "ElasticNet",
+             "primary_metric": "mae", "primary_score": 7.0, "rank": 2.0, "champion": False},
+        ])
+        final = pd.DataFrame()
+        report = build_significance_report(oof, aggregate, final, seed=42)
+        key = "pre_qualifying:position_model"
+        self.assertEqual(report[key]["champion"], "Ridge")
+        self.assertEqual(report[key]["runner_up"], "ElasticNet")
+        self.assertIn("paired_p_value", report[key])
+        self.assertIn("champion_ci", report[key])
+
+
+class SearchIntegrationTests(unittest.TestCase):
+    def test_candidate_carries_a_search_space(self):
+        cands = candidate_factories("position_model", "pre_qualifying", ["driver_recent_form"])
+        ridge = next(c for c in cands if c.name == "Ridge")
+        self.assertGreaterEqual(len(ridge.space), 1)
+
+    def test_baseline_candidates_have_no_search_space(self):
+        cands = candidate_factories("position_model", "pre_qualifying", ["driver_recent_form"])
+        median = next(c for c in cands if c.name == "MedianBaseline")
+        self.assertEqual(median.space, ())
+
+
+class CalibrationCandidateTests(unittest.TestCase):
+    def test_calibrated_candidates_are_present_for_classification(self):
+        cands = candidate_factories("top10_model", "pre_qualifying", ["driver_recent_form"])
+        names = {c.name for c in cands}
+        self.assertIn("RandomForestClassifierCalibrated", names)
+        self.assertIn("LGBMClassifierCalibrated", names)
+
+    def test_calibrated_candidates_have_no_search_space(self):
+        cands = candidate_factories("top10_model", "pre_qualifying", ["driver_recent_form"])
+        calibrated = [c for c in cands if c.name in {"RandomForestClassifierCalibrated", "LGBMClassifierCalibrated"}]
+        self.assertTrue(all(c.space == () for c in calibrated))
 
 
 if __name__ == "__main__":

@@ -33,9 +33,8 @@ function shortDate(date: string) {
   return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'short' }).format(new Date(date));
 }
 
-function nextRaceId(races: Race[]) {
-  const today = startOfToday();
-  return races.find((race) => new Date(race.race_date) >= today)?.id;
+function nextRaceId(races: Race[], resultsByRace: ResultsByRace) {
+  return races.find((race) => !resultsByRace[race.id]?.length)?.id;
 }
 
 function statusBadge(isCompleted: boolean, isNext: boolean) {
@@ -68,8 +67,7 @@ export function RaceCalendar({ year, races, resultsByRace, selectedRaceId, isLoa
     );
   }
 
-  const today = startOfToday();
-  const nextId = nextRaceId(races);
+  const nextId = nextRaceId(races, resultsByRace);
   let currentMonth = '';
 
   return (
@@ -79,13 +77,12 @@ export function RaceCalendar({ year, races, resultsByRace, selectedRaceId, isLoa
       </div>
       <div className="divide-y divide-f1-border">
         {races.map((race) => {
-          const raceDate = new Date(race.race_date);
-          const isCompleted = raceDate < today;
+          const results = resultsByRace[race.id] || [];
+          const isCompleted = results.length > 0;
           const isNext = race.id === nextId;
           const month = monthLabel(race.race_date);
           const showMonth = month !== currentMonth;
           currentMonth = month;
-          const results = resultsByRace[race.id] || [];
           const winner = results.find((result) => result.finishing_position === 1);
           const target = isCompleted
             ? `/seasons/${year}/races/${race.id}/analysis`

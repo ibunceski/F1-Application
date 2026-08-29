@@ -10,7 +10,7 @@ from statistics import mean, median
 from typing import Any
 
 from dotenv import load_dotenv
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -437,7 +437,7 @@ def post_qualifying_entries(db: Session, race: Race) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for qualifying_result in qualifying_results_for_race(db, race.id):
         race_result = None if is_upcoming_race(race) else current_race_result(db, race.id, qualifying_result.driver_id)
-        grid_position = race_result.grid_position if race_result is not None else qualifying_result.position
+        grid_position = qualifying_result.position
         team_id = (
             race_result.team_id
             if race_result is not None
@@ -460,6 +460,7 @@ def post_qualifying_entries(db: Session, race: Race) -> list[dict[str, Any]]:
                 "driver_id": qualifying_result.driver_id,
                 "team_id": team_id,
                 "grid_position": float(grid_position) if grid_position is not None else None,
+                "grid_position_source": "qualifying_position",
                 "qualifying_position": (
                     float(qualifying_result.position) if qualifying_result.position is not None else None
                 ),
@@ -532,6 +533,7 @@ def build_feature_row(
         "grid_position": entry["grid_position"],
         "qualifying_position": entry["qualifying_position"],
         "gap_to_pole_ms": entry["gap_to_pole_ms"],
+        "grid_position_source": entry.get("grid_position_source"),
         "avg_race_pace_ms": avg_race_pace_ms(db, driver_id, race.race_date),
         "driver_recent_form": driver_recent_form(db, driver_id, race.race_date),
         "team_recent_form": team_recent_form(db, team_id, race.race_date),
@@ -588,6 +590,16 @@ def process_race(
             year,
             race.round_number,
         )
+    # Remove stale rows for this race/context before regenerating so the
+    # feature snapshot matches the current entry list exactly. `upsert` only
+    # updates matching rows and never deletes rows whose entry disappeared
+    # (e.g. after race results were recovered for a previously partial season).
+    db.execute(
+        delete(MLFeature).where(
+            MLFeature.race_id == race.id,
+            MLFeature.feature_context == feature_context,
+        )
+    )
     entry_medians = current_entry_medians(entries)
 
     for entry in entries:
