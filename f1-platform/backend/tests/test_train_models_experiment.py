@@ -186,5 +186,18 @@ class SearchIntegrationTests(unittest.TestCase):
         self.assertEqual(median.space, ())
 
 
+class CalibrationCandidateTests(unittest.TestCase):
+    def test_calibrated_candidates_are_present_for_classification(self):
+        cands = candidate_factories("top10_model", "pre_qualifying", ["driver_recent_form"])
+        names = {c.name for c in cands}
+        self.assertIn("RandomForestClassifierCalibrated", names)
+        self.assertIn("LGBMClassifierCalibrated", names)
+
+    def test_calibrated_candidates_have_no_search_space(self):
+        cands = candidate_factories("top10_model", "pre_qualifying", ["driver_recent_form"])
+        calibrated = [c for c in cands if c.name in {"RandomForestClassifierCalibrated", "LGBMClassifierCalibrated"}]
+        self.assertTrue(all(c.space == () for c in calibrated))
+
+
 if __name__ == "__main__":
     unittest.main()

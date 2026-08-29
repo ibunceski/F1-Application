@@ -46,6 +46,7 @@ from sklearn.metrics import (
     roc_curve,
     precision_recall_curve,
 )
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier, XGBRegressor
 
@@ -361,6 +362,10 @@ def candidate_factories(task: TaskName, context: str, feature_cols: list[str]) -
         Candidate("RandomForestClassifier", 3, lambda _y, seed: build_pipeline(RandomForestClassifier(n_estimators=300, max_depth=10, min_samples_leaf=2, class_weight="balanced", random_state=seed, n_jobs=1), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["RandomForestClassifier"])),
         Candidate("XGBClassifier", 4, lambda y, seed: build_pipeline(XGBClassifier(n_estimators=250, max_depth=5, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, scale_pos_weight=_class_weight_scale(y), random_state=seed, n_jobs=1, eval_metric="logloss"), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["XGBClassifier"])),
         Candidate("LGBMClassifier", 4, lambda y, seed: build_pipeline(LGBMClassifier(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, class_weight="balanced", random_state=seed, n_jobs=1, verbose=-1), feature_cols), tuple(CLASSIFICATION_SEARCH_SPACES["LGBMClassifier"])),
+        Candidate("RandomForestClassifierCalibrated", 5,
+                  lambda _y, seed: build_pipeline(CalibratedClassifierCV(RandomForestClassifier(n_estimators=300, max_depth=10, min_samples_leaf=2, class_weight="balanced", random_state=seed, n_jobs=1), method="sigmoid", cv=3, n_jobs=1), feature_cols)),
+        Candidate("LGBMClassifierCalibrated", 5,
+                  lambda _y, seed: build_pipeline(CalibratedClassifierCV(LGBMClassifier(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, class_weight="balanced", random_state=seed, n_jobs=1, verbose=-1), method="sigmoid", cv=3, n_jobs=1), feature_cols)),
     ]
 
 
