@@ -58,6 +58,7 @@ load_dotenv(ROOT_DIR / ".env")
 load_dotenv(PROJECT_DIR / ".env", override=False)
 
 from app.ml.baseline_models import GridPositionRegressor, MedianRegressor, ZeroChangeRegressor
+from app.ml.ordinal_models import LightGBMRankRegressor, XGBRankRegressor
 from app.models.ml_feature import POST_QUALIFYING, PRE_QUALIFYING
 from ingestion.db_helpers import get_sync_engine
 from ml_pipeline.hyperparameter_search import (
@@ -147,6 +148,7 @@ class Candidate:
     complexity: int
     factory: Callable[[pd.Series, int], Any]
     space: tuple[dict[str, Any], ...] = ()
+    ranked: bool = False
 
 
 def parse_args() -> argparse.Namespace:
@@ -347,6 +349,9 @@ def candidate_factories(task: TaskName, context: str, feature_cols: list[str]) -
                 Candidate("LGBMRegressor", 4, lambda _y, seed: build_pipeline(LGBMRegressor(n_estimators=250, max_depth=6, learning_rate=0.04, subsample=0.85, colsample_bytree=0.9, reg_lambda=1.0, random_state=seed, n_jobs=1, verbose=-1), feature_cols), tuple(REGRESSION_SEARCH_SPACES["LGBMRegressor"])),
             ]
         )
+        if task == "position_model":
+            candidates.append(Candidate("LGBMRank", 5, lambda _y, seed: build_pipeline(LightGBMRankRegressor(random_state=seed), feature_cols), ranked=True))
+            candidates.append(Candidate("XGBRank", 5, lambda _y, seed: build_pipeline(XGBRankRegressor(random_state=seed), feature_cols), ranked=True))
         return candidates
     return [
         Candidate("PrevalenceBaseline", 0, lambda _y, _seed: build_pipeline(DummyClassifier(strategy="prior", random_state=0), feature_cols)),
@@ -385,6 +390,12 @@ def mean_per_race_spearman(y_true: pd.Series, predictions: np.ndarray, race_ids:
     ]
     valid = [float(value) for value in correlations if pd.notna(value)]
     return float(np.mean(valid)) if valid else float("nan")
+
+
+def ranked_position_predictions(race_ids: pd.Series, scores: np.ndarray) -> np.ndarray:
+    """Convert ranking scores to within-race predicted positions (rank 1 = best)."""
+    frame = pd.DataFrame({"race_id": race_ids.to_numpy(), "score": np.asarray(scores)})
+    return frame.groupby("race_id")["score"].rank(method="first", ascending=False).to_numpy(dtype=float)
 
 
 def regression_metrics(y_true: pd.Series, predictions: np.ndarray, task: TaskName, race_ids: pd.Series | None = None) -> dict[str, float]:
@@ -497,22 +508,32 @@ def evaluate_candidate(
         y_train = train_target[target].astype(int)
     else:
         y_train = train_target[target].astype(float)
-    model = (
-        build_pipeline(build_model_from_config(candidate.name, hyperparams, seed, feature_cols, task, y_train), feature_cols)
-        if hyperparams is not None and candidate.space
-        else candidate.factory(y_train, seed)
-    )
-    model.fit(train_target[feature_cols], y_train)
-    if kind == "classification":
-        probabilities = model.predict_proba(validation_target[feature_cols])[:, 1]
-        metrics = classification_metrics(validation_target[target].astype(int), probabilities, threshold)
-        predictions = (probabilities >= threshold).astype(int)
-        row_prediction = probabilities
-    else:
-        predictions = np.asarray(model.predict(validation_target[feature_cols]), dtype=float)
+    if candidate.ranked:
+        groups = train_target["race_id"].to_numpy()
+        model = candidate.factory(y_train, seed)
+        model.fit(train_target[feature_cols], y_train, **{"model__group": groups})
+        raw = np.asarray(model.predict(validation_target[feature_cols]), dtype=float)
+        predictions = ranked_position_predictions(validation_target["race_id"], raw)
         probabilities = np.full(len(predictions), np.nan)
         metrics = regression_metrics(validation_target[target].astype(float), predictions, task, validation_target["race_id"])
         row_prediction = predictions
+    else:
+        model = (
+            build_pipeline(build_model_from_config(candidate.name, hyperparams, seed, feature_cols, task, y_train), feature_cols)
+            if hyperparams is not None and candidate.space
+            else candidate.factory(y_train, seed)
+        )
+        model.fit(train_target[feature_cols], y_train)
+        if kind == "classification":
+            probabilities = model.predict_proba(validation_target[feature_cols])[:, 1]
+            metrics = classification_metrics(validation_target[target].astype(int), probabilities, threshold)
+            predictions = (probabilities >= threshold).astype(int)
+            row_prediction = probabilities
+        else:
+            predictions = np.asarray(model.predict(validation_target[feature_cols]), dtype=float)
+            probabilities = np.full(len(predictions), np.nan)
+            metrics = regression_metrics(validation_target[target].astype(float), predictions, task, validation_target["race_id"])
+            row_prediction = predictions
     result = {
         "phase": phase,
         "fold": fold_name,
