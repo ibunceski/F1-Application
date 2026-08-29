@@ -63,6 +63,19 @@ load_dotenv(PROJECT_DIR / ".env", override=False)
 from app.ml.baseline_models import GridPositionRegressor, MedianRegressor, ZeroChangeRegressor
 from app.models.ml_feature import POST_QUALIFYING, PRE_QUALIFYING
 from ingestion.db_helpers import get_sync_engine
+from ml_pipeline.statistical_evaluation import (
+    bootstrap_mean_of_per_race,
+    cluster_bootstrap_pooled,
+    paired_bootstrap_ci,
+    paired_metric_differences,
+    paired_permutation_test,
+    per_race_brier,
+    per_race_mae,
+    per_race_metric,
+    pooled_mae,
+    pooled_pr_auc,
+    pooled_roc_auc,
+)
 
 LOGGER = logging.getLogger("ml.experiments")
 
@@ -619,6 +632,66 @@ def aggregate_ablation_results(results: pd.DataFrame) -> pd.DataFrame:
     return aggregate.sort_values(["context", "task", "rank", "ablation"]).reset_index(drop=True)
 
 
+def build_significance_report(
+    oof_predictions: pd.DataFrame,
+    aggregate: pd.DataFrame,
+    final_results: pd.DataFrame,
+    seed: int,
+) -> dict[str, Any]:
+    """Confidence intervals and paired champion-vs-runner-up tests, clustered by race."""
+    validation = oof_predictions[
+        (oof_predictions["phase"] == "validation")
+        & (oof_predictions["analysis_type"] == "candidate_model")
+    ]
+    report: dict[str, Any] = {}
+    for (context, task), group in aggregate.groupby(["context", "task"], sort=False):
+        ranked = group[group["rank"].notna()].sort_values("rank")
+        if len(ranked) < 2:
+            continue
+        champion = str(ranked.iloc[0]["algorithm"])
+        runner_up = str(ranked.iloc[1]["algorithm"])
+        primary = PRIMARY_METRIC[task]
+        is_classification = task in {"top10_model", "podium_model"}
+
+        champ = validation[
+            (validation["context"] == context)
+            & (validation["task"] == task)
+            & (validation["algorithm"] == champion)
+        ]
+        runner = validation[
+            (validation["context"] == context)
+            & (validation["task"] == task)
+            & (validation["algorithm"] == runner_up)
+        ]
+        if champ.empty or runner.empty:
+            continue
+
+        if is_classification:
+            metric_fn = pooled_roc_auc if primary == "roc_auc" else pooled_pr_auc
+            champ_ci = cluster_bootstrap_pooled(champ, metric_fn, seed=seed)
+            runner_ci = cluster_bootstrap_pooled(runner, metric_fn, seed=seed)
+            paired_a = per_race_metric(champ, per_race_brier)
+            paired_b = per_race_metric(runner, per_race_brier)
+        else:
+            champ_ci = bootstrap_mean_of_per_race(per_race_metric(champ, per_race_mae), seed=seed)
+            runner_ci = bootstrap_mean_of_per_race(per_race_metric(runner, per_race_mae), seed=seed)
+            paired_a = per_race_metric(champ, per_race_mae)
+            paired_b = per_race_metric(runner, per_race_mae)
+
+        differences = paired_metric_differences(paired_a, paired_b)
+        report[f"{context}:{task}"] = {
+            "champion": champion,
+            "runner_up": runner_up,
+            "primary_metric": primary,
+            "champion_ci": champ_ci,
+            "runner_up_ci": runner_ci,
+            "paired_p_value": paired_permutation_test(differences, seed=seed),
+            "paired_difference_ci": paired_bootstrap_ci(differences, seed=seed),
+            "paired_race_count": int(len(differences)),
+        }
+    return report
+
+
 def data_fingerprint(df: pd.DataFrame, feature_cols: list[str]) -> dict[str, Any]:
     columns = ["race_id", "driver_id", "season_year", "race_date", "data_cutoff_date", *feature_cols, *TASK_TARGETS.values()]
     existing = [column for column in columns if column in df.columns]
@@ -738,6 +811,7 @@ def write_experiment_artifacts(
     ablation_results: pd.DataFrame | None = None,
     ablation_aggregate: pd.DataFrame | None = None,
     ablation_predictions: pd.DataFrame | None = None,
+    significance: dict | None = None,
 ) -> None:
     """Write the immutable, auditable artifact set for one completed run."""
     write_json(experiment_dir / "manifest.json", manifest)
@@ -758,6 +832,7 @@ def write_experiment_artifacts(
         ablation_results.to_csv(ablation_dir / "model_results.csv", index=False)
         ablation_aggregate.to_csv(ablation_dir / "aggregate_results.csv", index=False)
         ablation_predictions.to_csv(ablation_dir / "out_of_fold_predictions.csv.gz", index=False, compression="gzip")
+    write_json(experiment_dir / "significance.json", significance or {})
     write_markdown_report(experiment_dir / "report.md", manifest, aggregate, final_results)
 
 
@@ -773,6 +848,7 @@ def validate_artifact_schema(experiment_dir: Path) -> None:
         "reliability_bins.csv",
         "final_holdout_results.csv",
         "report.md",
+        "significance.json",
     }
     missing = sorted(name for name in required if not (experiment_dir / name).is_file())
     if missing:
@@ -1101,6 +1177,7 @@ def run_experiment(args: argparse.Namespace) -> Path:
             "feature_ablation_method": "same_candidate_matrix_and_temporal_folds_with_validation_only_selection",
         },
     }
+    significance = build_significance_report(oof_predictions, aggregate, final_results, args.seed)
     write_experiment_artifacts(
         experiment_dir,
         manifest,
@@ -1113,6 +1190,7 @@ def run_experiment(args: argparse.Namespace) -> Path:
         ablation_results,
         ablation_aggregate,
         ablation_predictions,
+        significance=significance,
     )
     validate_artifact_schema(experiment_dir)
     if args.generate_plots:
