@@ -11,7 +11,6 @@ EXPECTED_PRE = [
     "dnf_rate_recent",
 ]
 EXPECTED_POST = [
-    "grid_position",
     "qualifying_position",
     "gap_to_pole_ms",
     *EXPECTED_PRE,

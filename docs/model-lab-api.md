@@ -4,6 +4,18 @@ The read-only Model Lab API exposes persisted experiment evidence under `models_
 
 All routes are under `/api/v1/model-lab` and have typed request/response schemas in the OpenAPI document at `/api/openapi.json`.
 
+## Bundled thesis evidence
+
+The public repository includes the complete 25-file experiment `f1-2025holdout-20260831T185450Z`: development seasons 2021–2024, three chronological validation folds, completed 2025 holdout, and seed 42. The bundle is available without ingestion or retraining. Runtime prediction models are installed separately by copying its `champions/` files as described in the README.
+
+Use an explicit ID for thesis reproduction, for example:
+
+```text
+GET /api/v1/model-lab/overview?experiment_id=f1-2025holdout-20260831T185450Z
+```
+
+New local experiments may become the default latest successful run. Historical manifests retain their original IDs; older runs are not the reported thesis experiment. See [final results](final-experiment-results.md) for the distinction between full-context holdout scores and the 471-record common-subset comparison.
+
 ## Latest successful experiment
 
 For routes with an optional `experiment_id`, omitting it resolves the **latest successful** experiment. A directory is successful only when its `manifest.json` is valid, declares a completed (or legacy-compatible absent) status, contains valid contexts and a final evaluation season, and contains the required candidate artifact files: `manifest.json`, `aggregate_results.csv`, `model_results.csv`, and `out_of_fold_predictions.csv.gz`.

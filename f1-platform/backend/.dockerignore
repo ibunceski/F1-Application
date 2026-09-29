@@ -1,0 +1,29 @@
+.git
+.idea
+.vscode
+.venv
+venv
+node_modules
+**/__pycache__
+**/*.py[cod]
+.env
+.env.*
+!.env.example
+cache
+logs
+reports
+backups
+tmp
+output
+.pytest_cache
+.ruff_cache
+.coverage*
+htmlcov
+coverage
+**/*.log
+**/*.tsbuildinfo
+models_store
+ingestion/ingest_races.py
+ingestion/ingest_seasons.py
+# Compose mounts /app from the host, including locally installed models.
+# Keep training and test source in the image; install model artifacts separately.

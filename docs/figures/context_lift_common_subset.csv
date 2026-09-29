@@ -1,0 +1,9 @@
+phase,task,metric,common_driver_race_rows,pre_qualifying_score,post_qualifying_score,context_lift,positive_lift_definition
+validation,position_model,mae,1335,3.5850187265917604,3.1655430711610486,0.41947565543071175,MAE reduction
+validation,top10_model,roc_auc,1335,0.8243132836243002,0.8594896818591956,0.03517639823489538,metric increase
+validation,podium_model,pr_auc,1335,0.5120752684654618,0.6779186040127179,0.16584333554725605,metric increase
+validation,position_gain_model,mae,1335,3.6247191011235955,3.5408995511318713,0.08381954999172425,MAE reduction
+final_holdout,position_model,mae,471,3.7473460721868364,3.1019108280254777,0.6454352441613587,MAE reduction
+final_holdout,top10_model,roc_auc,471,0.780460972442649,0.8346378588948203,0.054176886452171336,metric increase
+final_holdout,podium_model,pr_auc,471,0.5834566340841667,0.7832236980942642,0.19976706401009747,metric increase
+final_holdout,position_gain_model,mae,471,3.3248407643312103,3.2229419848380942,0.1018987794931161,MAE reduction

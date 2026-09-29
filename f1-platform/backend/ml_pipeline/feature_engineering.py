@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
+import unicodedata
 from collections import defaultdict
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -31,7 +33,59 @@ from app.models.weather import WeatherData
 from ingestion.db_helpers import get_session, upsert
 
 LOGGER = logging.getLogger("ml.feature_engineering")
-DNF_CLASSIFICATIONS = {"DNF", "DNQ", "DNS", "DSQ"}
+# These are the explicit non-classification codes emitted by FastF1/Jolpica and
+# by historical imports.  A numeric ``classified_position`` is an official
+# classification (including a lapped driver), not a DNF signal.
+DNF_CLASSIFICATIONS = {
+    "DNF",
+    "DNQ",
+    "DNS",
+    "DSQ",
+    "DQ",
+    "NC",
+    "N C",
+    "NOT CLASSIFIED",
+    "R",
+    "RET",
+    "RETIRED",
+}
+CLASSIFIED_STATUS_PATTERNS = (
+    re.compile(r"^FINISHED$"),
+    re.compile(r"^CLASSIFIED$"),
+    re.compile(r"^LAPPED$"),
+    # Jolpica represents classified lapped finishers as e.g. "+1 Lap".
+    re.compile(r"^[+-]?\d+ LAPS?$"),
+)
+DNF_STATUS_TOKENS = {
+    "accident",
+    "collision",
+    "crash",
+    "damage",
+    "engine",
+    "mechanical",
+    "gearbox",
+    "transmission",
+    "hydraulics",
+    "electrical",
+    "electronics",
+    "brakes",
+    "brake",
+    "suspension",
+    "exhaust",
+    "clutch",
+    "driveshaft",
+    "turbo",
+    "battery",
+    "overheating",
+    "puncture",
+    "tyre",
+    "wheel",
+    "fire",
+    "spun",
+    "vibrations",
+    "oil",
+    "water",
+}
 NUMERIC_FEATURES = [
     "grid_position",
     "qualifying_position",
@@ -132,9 +186,65 @@ def query_target_races(db: Session, args: argparse.Namespace) -> list[tuple[Race
     return query_races(db, args.seasons, args.round_number)
 
 
+def normalize_result_text(value: object | None) -> str:
+    """Normalize heterogeneous provider result text for semantic comparisons."""
+    if value is None:
+        return ""
+    normalized = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
+    return " ".join(re.sub(r"[^A-Za-z0-9+-]+", " ", normalized).upper().split())
+
+
+def _is_classified_status(status: str) -> bool:
+    return any(pattern.fullmatch(status) for pattern in CLASSIFIED_STATUS_PATTERNS)
+
+
+def _is_dnf_status(status: str) -> bool:
+    """Return whether a provider status explicitly records a non-finish."""
+    if not status:
+        return False
+
+    explicit_non_finishes = {
+        "DNF",
+        "DNQ",
+        "DNS",
+        "DSQ",
+        "DQ",
+        "NC",
+        "NOT CLASSIFIED",
+        "NOT STARTED",
+        "DID NOT START",
+        "DID NOT FINISH",
+        "DISQUALIFIED",
+        "RETIRED",
+        "RETIREMENT",
+        "WITHDREW",
+        "WITHDRAWN",
+    }
+    if status in explicit_non_finishes or "NOT CLASSIFIED" in status:
+        return True
+    if "RETIRED" in status or "DISQUALIFIED" in status or "DID NOT " in status:
+        return True
+    return bool(DNF_STATUS_TOKENS.intersection(status.casefold().split()))
+
+
 def is_dnf(result: RaceResult) -> bool:
-    classification = (result.classified_position or "").upper()
-    return result.finishing_position is None or classification in DNF_CLASSIFICATIONS
+    """Classify a race result as a DNF from official status/classification data.
+
+    Result providers often assign a numeric ordering to retired drivers, so a
+    non-null ``finishing_position`` alone is not evidence of a classified
+    finish.  Conversely, a lapped driver remains classified.  Explicit DNF
+    evidence therefore takes precedence, followed by explicit finish/lap
+    evidence; only ambiguous records fall back to the legacy null-position
+    rule.
+    """
+    classification = normalize_result_text(result.classified_position)
+    status = normalize_result_text(result.status)
+
+    if classification in DNF_CLASSIFICATIONS or _is_dnf_status(status):
+        return True
+    if classification.isdigit() or _is_classified_status(status):
+        return False
+    return result.finishing_position is None
 
 
 def average(values: list[float | int]) -> float | None:
@@ -231,12 +341,20 @@ def team_recent_form(db: Session, team_id: int, before_date: date) -> float | No
 
 
 def circuit_history(db: Session, driver_id: int, current_race: Race) -> tuple[float, float | None]:
+    """Return prior results at the same circuit location.
+
+    ``Race.circuit_name`` contains FastF1's official sponsored event title,
+    including the season year, so it is not a stable cross-season identifier.
+    Location plus country is stable for the historical dataset and also groups
+    differently sponsored events held at the same physical circuit.
+    """
     statement = (
         select(RaceResult)
         .join(Race, RaceResult.race_id == Race.id)
         .where(
             RaceResult.driver_id == driver_id,
-            Race.circuit_name == current_race.circuit_name,
+            Race.circuit_location == current_race.circuit_location,
+            Race.circuit_country == current_race.circuit_country,
             Race.race_date < current_race.race_date,
         )
     )

@@ -41,7 +41,16 @@ if ($BackupFirst) {
     New-Item -ItemType Directory -Force $BackupDir | Out-Null
     $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $BackupPath = Join-Path $BackupDir "f1_db_backup_$Timestamp.dump"
-    Run-Step "Backup PostgreSQL database" "docker compose exec -T db pg_dump -U f1_user -d f1_db -Fc > `"$BackupPath`""
+    # Write binary output inside the container to avoid PowerShell redirection
+    # changing dump bytes. Use the running database's configured credentials.
+    $ContainerBackupPath = "/tmp/f1_db_backup_$Timestamp.dump"
+    $BackupCommand = 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -f "$1"'
+    & docker compose exec -T db sh -c $BackupCommand sh $ContainerBackupPath
+    if ($LASTEXITCODE -ne 0) { throw "Database backup failed." }
+    & docker compose cp "db:$ContainerBackupPath" $BackupPath
+    if ($LASTEXITCODE -ne 0) { throw "Could not copy database backup to $BackupPath" }
+    & docker compose exec -T db rm -- $ContainerBackupPath
+    if ($LASTEXITCODE -ne 0) { throw "Could not remove temporary container backup." }
 }
 
 if ($ResetDatabase) {
@@ -71,9 +80,10 @@ Run-Step "Build ML features for completed seasons" "docker compose run --rm inge
 
 if (-not $SkipTraining) {
     # --min-train-seasons 1 yields the documented three-fold expanding design:
-# fold 1 = train 2021 -> validate 2022; fold 2 = train 2021-2022 -> validate 2023;
-# fold 3 = train 2021-2023 -> validate 2024.
-Run-Step "Train thesis models with 2025 holdout" "docker compose run --rm ingestion python ml_pipeline/train_models.py --train-seasons 2021 2022 2023 2024 --evaluation-seasons 2025 --min-train-seasons 1 --context all --seed 42 --artifact-output-dir models_store --model-output-dir models_store --generate-plots"
+    # fold 1 = train 2021 -> validate 2022; fold 2 = train 2021-2022 -> validate 2023;
+    # fold 3 = train 2021-2023 -> validate 2024. A new run gets a new experiment ID.
+    Run-Step "Train thesis models with 2025 holdout" "docker compose run --rm ingestion python ml_pipeline/train_models.py --train-seasons 2021 2022 2023 2024 --evaluation-seasons 2025 --min-train-seasons 1 --context all --seed 42 --artifact-output-dir models_store --model-output-dir models_store --generate-plots"
+    Run-Step "Reload deployed models in the API" "docker compose restart backend"
 }
 
 if ($Include2026LiveData) {

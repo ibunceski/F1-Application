@@ -1,0 +1,178 @@
+{
+  "post_qualifying:podium_model": {
+    "champion": "LogisticRegression",
+    "champion_ci": {
+      "ci_high": 0.7423671183390369,
+      "ci_low": 0.6169180177646317,
+      "mean": 0.6812781880272802
+    },
+    "paired_difference_ci": {
+      "ci_high": 0.04684176026458793,
+      "ci_low": 0.03468204024070939,
+      "mean": 0.04077121180392604
+    },
+    "paired_p_value": 0.0001999600079984003,
+    "paired_race_count": 68,
+    "primary_metric": "pr_auc",
+    "runner_up": "RandomForestClassifierCalibrated",
+    "runner_up_ci": {
+      "ci_high": 0.7156474287277641,
+      "ci_low": 0.5834122329343425,
+      "mean": 0.6501580314940777
+    }
+  },
+  "post_qualifying:position_gain_model": {
+    "champion": "ElasticNet",
+    "champion_ci": {
+      "ci_high": 3.803682011454449,
+      "ci_low": 3.248216642566522,
+      "mean": 3.525402408158878
+    },
+    "paired_difference_ci": {
+      "ci_high": 0.0011171137357234035,
+      "ci_low": -0.011911045718400072,
+      "mean": -0.005012986692699424
+    },
+    "paired_p_value": 0.1187762447510498,
+    "paired_race_count": 68,
+    "primary_metric": "mae",
+    "runner_up": "Ridge",
+    "runner_up_ci": {
+      "ci_high": 3.812446301424413,
+      "ci_low": 3.25355962759688,
+      "mean": 3.5304153948515777
+    }
+  },
+  "post_qualifying:position_model": {
+    "champion": "LogisticAT",
+    "champion_ci": {
+      "ci_high": 3.3745539860681113,
+      "ci_low": 2.9375,
+      "mean": 3.159571052631579
+    },
+    "paired_difference_ci": {
+      "ci_high": 0.015750773993808042,
+      "ci_low": -0.09895897832817338,
+      "mean": -0.04132736068111454
+    },
+    "paired_p_value": 0.1865626874625075,
+    "paired_race_count": 68,
+    "primary_metric": "mae",
+    "runner_up": "OrdinalRidge",
+    "runner_up_ci": {
+      "ci_high": 3.384708784829721,
+      "ci_low": 3.0146874999999995,
+      "mean": 3.2008984133126934
+    }
+  },
+  "post_qualifying:top10_model": {
+    "champion": "RandomForestClassifierCalibrated",
+    "champion_ci": {
+      "ci_high": 0.8846132973542661,
+      "ci_low": 0.8359266438534176,
+      "mean": 0.8600586371156301
+    },
+    "paired_difference_ci": {
+      "ci_high": 0.002877441400214527,
+      "ci_low": -0.006190295956116475,
+      "mean": -0.0017393423642626455
+    },
+    "paired_p_value": 0.4505098980203959,
+    "paired_race_count": 68,
+    "primary_metric": "roc_auc",
+    "runner_up": "LogisticRegression",
+    "runner_up_ci": {
+      "ci_high": 0.885733723901932,
+      "ci_low": 0.8352923282144715,
+      "mean": 0.8604865105260934
+    }
+  },
+  "pre_qualifying:podium_model": {
+    "champion": "RandomForestClassifierCalibrated",
+    "champion_ci": {
+      "ci_high": 0.57911953178804,
+      "ci_low": 0.45582744403793707,
+      "mean": 0.5177954620284653
+    },
+    "paired_difference_ci": {
+      "ci_high": -0.030164667475358828,
+      "ci_low": -0.04337493700511127,
+      "mean": -0.03690588224149455
+    },
+    "paired_p_value": 0.0001999600079984003,
+    "paired_race_count": 68,
+    "primary_metric": "pr_auc",
+    "runner_up": "XGBClassifier",
+    "runner_up_ci": {
+      "ci_high": 0.573862454853534,
+      "ci_low": 0.44767142814868705,
+      "mean": 0.5090844578401409
+    }
+  },
+  "pre_qualifying:position_gain_model": {
+    "champion": "ZeroChangeBaseline",
+    "champion_ci": {
+      "ci_high": 3.898495979532164,
+      "ci_low": 3.3505158883728927,
+      "mean": 3.630901055641555
+    },
+    "paired_difference_ci": {
+      "ci_high": -0.0890646175850417,
+      "ci_low": -0.16124541552681385,
+      "mean": -0.12313393032838808
+    },
+    "paired_p_value": 0.0001999600079984003,
+    "paired_race_count": 68,
+    "primary_metric": "mae",
+    "runner_up": "ElasticNet",
+    "runner_up_ci": {
+      "ci_high": 4.026249891644806,
+      "ci_low": 3.4710529118363085,
+      "mean": 3.754034985969943
+    }
+  },
+  "pre_qualifying:position_model": {
+    "champion": "LogisticAT",
+    "champion_ci": {
+      "ci_high": 3.821772902691778,
+      "ci_low": 3.377126064241486,
+      "mean": 3.5956865652949777
+    },
+    "paired_difference_ci": {
+      "ci_high": 0.061064752106983027,
+      "ci_low": -0.05582986648606816,
+      "mean": 0.0006464046912624632
+    },
+    "paired_p_value": 0.9714057188562287,
+    "paired_race_count": 68,
+    "primary_metric": "mae",
+    "runner_up": "OrdinalRidge",
+    "runner_up_ci": {
+      "ci_high": 3.786848393962848,
+      "ci_low": 3.407891834365325,
+      "mean": 3.595040160603715
+    }
+  },
+  "pre_qualifying:top10_model": {
+    "champion": "LGBMClassifier",
+    "champion_ci": {
+      "ci_high": 0.8505572569767303,
+      "ci_low": 0.7977349431481359,
+      "mean": 0.8245667352916229
+    },
+    "paired_difference_ci": {
+      "ci_high": 0.003601689794245402,
+      "ci_low": -0.00773551394927104,
+      "mean": -0.0018005189752041155
+    },
+    "paired_p_value": 0.5232953409318136,
+    "paired_race_count": 68,
+    "primary_metric": "roc_auc",
+    "runner_up": "LogisticRegression",
+    "runner_up_ci": {
+      "ci_high": 0.8479840687707986,
+      "ci_low": 0.7930157904244687,
+      "mean": 0.8211187186048604
+    }
+  }
+}

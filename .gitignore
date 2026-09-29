@@ -1,12 +1,59 @@
-# Python bytecode
-__pycache__/
-*.pyc
-
-# Generated ML experiment artifacts (reproducible, not committed)
-f1-platform/backend/models_store/experiments/
-
-# Local backups
-f1-platform/backups/
-
-# Superpowers SDD scratch workspace
+# Environment and machine-specific configuration
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+.agents/
 .superpowers/
+
+# Dependencies and generated development outputs
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+*.log
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+.DS_Store
+Thumbs.db
+
+# Local data and generated report workspaces
+/f1-platform/backend/cache/
+/f1-platform/backend/logs/
+/f1-platform/frontend/dist/
+/f1-platform/backups/
+/f1-platform/backend/reports/
+
+# Local thesis and presentation production workspace
+/thesis_output/
+/final_thesis/
+/tmp/
+/output/
+/images/
+/Project Status Report.docx
+/ApexInsight - F1 Prediction Platform.pdf
+
+# Retired document inputs and builders
+/docs/*.docx
+/docs/build_*.py
+/docs/.a11y*.json
+/docs/.formula1*a11y*.json
+/docs/.thesis_assets/
+/docs/superpowers/
+
+# Retired placeholder modules retained locally
+/f1-platform/backend/ingestion/ingest_races.py
+/f1-platform/backend/ingestion/ingest_seasons.py
+
+# Generated model store, except the frozen thesis evidence bundle
+/f1-platform/backend/models_store/*
+!/f1-platform/backend/models_store/experiments/
+/f1-platform/backend/models_store/experiments/*
+!/f1-platform/backend/models_store/experiments/f1-2025holdout-20260831T185450Z/
