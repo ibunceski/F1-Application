@@ -1,162 +1,112 @@
-# Final Thesis Experiment Results
+# Final thesis experiment results
 
-## Reproducibility record
+## Authoritative record
 
-- **Authoritative experiment ID:** `f1-2025holdout-20260829T221238Z`
-- **Completion timestamp:** `2026-08-29T22:17:49Z`
-- **Seed:** `42`
-- **Contexts:** `pre_qualifying`, `post_qualifying`
-- **Validation strategy:** expanding rolling origin by completed season
-- **Artifact directory:** `f1-platform/backend/models_store/experiments/f1-2025holdout-20260829T221238Z/`
-- **Artifact validation:** passed; 8 champion joblibs, 10 PNG figures, and a `significance.json` present.
+- Experiment: `f1-2025holdout-20260831T185450Z`
+- Completed: `2026-08-31T19:01:26.328224+00:00`
+- Development seasons: 2021, 2022, 2023, 2024
+- Rolling validation: 2021 -> 2022; 2021–2022 -> 2023; 2021–2023 -> 2024
+- Final holdout: completed season 2025
+- Seed: 42; both pre-qualifying and post-qualifying contexts
 
-The final experiment command was:
+The [frozen bundle](../f1-platform/backend/models_store/experiments/f1-2025holdout-20260831T185450Z/) contains 25 files. Its eight champions and four metadata/importance files match the deployed thesis models. The validation tables and figure provenance used in the final thesis identify this run.
 
-```bash
-docker compose run --rm ingestion python ml_pipeline/train_models.py \
-  --train-seasons 2021 2022 2023 2024 \
-  --evaluation-seasons 2025 \
-  --min-train-seasons 1 \
-  --context all \
-  --seed 42 \
-  --artifact-output-dir models_store \
-  --model-output-dir models_store \
-  --generate-plots
-```
-
-`--min-train-seasons 1` produces the documented three-fold expanding design: each fold trains on all earlier completed seasons and validates on the next one.
-
-### What changed relative to `f1-2025holdout-20260829T172358Z`
-
-This experiment is the first with the full thesis-rigor framework:
-
-1. **Grid-definition parity:** post-qualifying `grid_position` now always uses the qualifying position (the value genuinely available at the "post-qualifying, pre-race" prediction time), instead of the official final grid for historical rows. A `grid_position_source` marker is recorded. Feature rows were regenerated with `--force`.
-2. **Nested hyperparameter search** with predeclared, bounded budgets (≈40 regression / ≈27 classification configurations), selected on an expanding inner split of each fold's training seasons only.
-3. **New candidate families:** ordinal regression (`OrdinalRidge`, `LogisticAT` via `mord`), race-grouped ranking (`LGBMRank` lambdarank, `XGBRank` rank:pairwise), and calibrated classifiers (`RandomForestClassifierCalibrated`, `LGBMClassifierCalibrated`).
-4. **Statistical uncertainty:** race-cluster bootstrap 95% confidence intervals and paired (race-aligned) permutation tests, persisted in `significance.json`.
-
-Weather fields remain excluded from all candidates. The final held-out season was never used for any selection decision.
-
-## Data audit and split
-
-The database audit found 2021, 2022, 2023, 2024, and 2025 fully scheduled and with complete race/qualifying coverage. 2026 had future scheduled races and only partial results, so it was excluded from every partition.
-
-| Purpose | Seasons | Reason |
-| --- | --- | --- |
-| Development pool | 2021, 2022, 2023, 2024 | Completed seasons with usable features and targets |
-| Rolling validation folds | train 2021 → validate 2022; train 2021-2022 → validate 2023; train 2021-2023 → validate 2024 | Strictly chronological |
-| Final held-out evaluation | 2025 | Latest completed season; never used for selection |
-
-Feature-row counts after regeneration: 420/440/440/479/479 for pre-qualifying and 440/440/440/479/479 for post-qualifying in 2021/2022/2023/2024/2025. 2022 still has no lap data, so `avg_race_pace_ms` is median-filled for ~88% of 2022 rows.
+The six historical predictors are pace, driver/team form, circuit finish/DNF history, and recent DNF rate. Post-qualifying adds qualifying position and gap to pole. Target-race weather and the duplicate grid-position predictor are excluded. Official grid remains part of the gain/loss target.
 
 ## Validation-selected champions
 
-Mean rolling-validation selection metric across the three folds (2022, 2023, 2024). Regression primary metric is MAE; Top 10 uses ROC-AUC; podium uses PR-AUC.
+Selection uses the mean primary score across the three chronological validation seasons. Lower MAE and higher ROC-AUC/PR-AUC are better.
 
-| Context | Task | Champion | Primary metric | Mean score | Std. dev. |
-| --- | --- | --- | --- | ---: | ---: |
-| Pre | Finishing position | **LogisticAT** (ordinal) | MAE | 3.603 | ±0.245 |
-| Post | Finishing position | **LogisticAT** (ordinal) | MAE | 3.134 | ±0.409 |
-| Pre | Top 10 | Logistic Regression | ROC-AUC | 0.820 | ±0.029 |
-| Post | Top 10 | Logistic Regression | ROC-AUC | 0.863 | ±0.043 |
-| Pre | Podium | Logistic Regression | PR-AUC | 0.540 | ±0.067 |
-| Post | Podium | Logistic Regression | PR-AUC | 0.685 | ±0.043 |
-| Pre | Position gain/loss | Zero-change baseline | MAE | 3.645 | ±0.664 |
-| Post | Position gain/loss | Ridge | MAE | 3.577 | ±0.686 |
+| Task | Context | Champion | Primary metric | Validation mean |
+| --- | --- | --- | --- | ---: |
+| Position | Pre | LogisticAT | MAE | 3.5939 |
+| Position | Post | LogisticAT | MAE | 3.1749 |
+| Top 10 | Pre | LGBMClassifier | ROC-AUC | 0.8223 |
+| Top 10 | Post | RandomForestClassifierCalibrated | ROC-AUC | 0.8588 |
+| Podium | Pre | RandomForestClassifierCalibrated | PR-AUC | 0.5454 |
+| Podium | Post | LogisticRegression | PR-AUC | 0.6738 |
+| Gain/loss | Pre | ZeroChangeBaseline | MAE | 3.6449 |
+| Gain/loss | Post | ElasticNet | MAE | 3.5479 |
 
-The headline change is that **ordinal regression (proportional-odds logistic, `LogisticAT`) now wins the finishing-position task in both contexts**, displacing Ridge. The two ordinal models (`LogisticAT`, `OrdinalRidge`) occupy ranks 1 and 2 in both contexts:
+Source: `aggregate_results.csv`. The final holdout does not select these champions. The ordinal model narrowly leads the position task; boosted/calibrated classifiers also win some tasks, so the earlier claim that simple linear/logistic models win all remaining tasks no longer describes this experiment.
 
-| Context | rank 1 | rank 2 | rank 3 (prev. champion) |
-| --- | --- | --- | --- |
-| Post | LogisticAT 3.134 | OrdinalRidge 3.236 | Ridge 3.253 |
-| Pre | LogisticAT 3.603 | OrdinalRidge 3.697 | Ridge 3.705 |
+![Position candidates on rolling validation](figures/fig_leaderboard_position_model_validation.png)
 
-## Statistical significance and confidence intervals
+## Final 2025 holdout: all eligible rows in each context
 
-`significance.json` records race-cluster bootstrap 95% CIs for each champion and runner-up, plus a paired (race-aligned) permutation test. Interpretation follows the thesis rule: report effect sizes, CIs, and p-values together; p < 0.05 is evidence of a real difference, not the sole arbiter.
+These results use **472 pre-qualifying rows** or **478 post-qualifying rows**, across 24 races. Model and baseline scores in each row use the same context-specific population.
 
-| Context | Task | Champion vs runner-up | Paired p-value | Significant (p<0.05)? |
-| --- | --- | --- | ---: | --- |
-| Post | Position | LogisticAT vs OrdinalRidge | 0.0002 | yes |
-| Pre | Position | LogisticAT vs OrdinalRidge | 0.0004 | yes |
-| Post | Top 10 | Logistic Regression vs LGBM | 0.080 | no |
-| Pre | Top 10 | Logistic Regression vs RF | 0.140 | no |
-| Post | Podium | Logistic Regression vs RF | 0.0002 | yes |
-| Pre | Podium | Logistic Regression vs RF-calibrated | 0.0002 | yes |
-| Post | Gain/loss | Ridge vs LGBM | 0.235 | no |
-| Pre | Gain/loss | Zero-change vs ElasticNet | 0.0002 | yes |
+| Task | Context | Champion | Metric | Champion score | Baseline | Baseline score |
+| --- | --- | --- | --- | ---: | --- | ---: |
+| Position | Pre | LogisticAT | MAE | 3.7521 | Median | 4.9746 |
+| Position | Post | LogisticAT | MAE | 3.1130 | Qualifying position | 3.3431 |
+| Top 10 | Pre | LGBMClassifier | ROC-AUC | 0.7810 | Prevalence | 0.5000 |
+| Top 10 | Post | RandomForestClassifierCalibrated | ROC-AUC | 0.8364 | Prevalence | 0.5000 |
+| Podium | Pre | RandomForestClassifierCalibrated | PR-AUC | 0.5834 | Prevalence | 0.1525 |
+| Podium | Post | LogisticRegression | PR-AUC | 0.7832 | Prevalence | 0.1506 |
+| Gain/loss | Pre | ZeroChangeBaseline | MAE | 3.3220 | Zero change | 3.3220 |
+| Gain/loss | Post | ElasticNet | MAE | 3.2354 | Zero change | 3.3473 |
 
-Notably, the Top-10 comparisons are **not** statistically significant: the linear/logistic and tree models are indistinguishable on ROC-AUC in this small-data regime. The finish-position and podium differences are statistically significant.
+Source: `final_holdout_results.csv`; the [derived baseline summary](figures/champion_vs_baseline_summary.csv) also records validation and holdout comparisons.
 
-## Final 2025 held-out results
+Position and gain/loss improvements over the post-qualifying domain baselines are modest. The zero-change winner before qualifying is a useful negative result: historical features did not justify choosing a more complex gain/loss model on validation.
 
-Confirmatory: selection was frozen before 2025 was evaluated.
+## Direct context comparison: 471 shared rows
 
-| Context | Task | Champion | MAE | RMSE | R² | Rank / classification detail |
-| --- | --- | --- | ---: | ---: | ---: | --- |
-| Pre | Position | LogisticAT | 3.896 | 4.981 | 0.250 | race Spearman 0.506; within-2 acc 0.390 |
-| Post | Position | LogisticAT | 3.186 | 4.326 | 0.433 | race Spearman 0.653; within-2 acc 0.517 |
-| Pre | Gain/loss | Zero-change | 3.322 | 4.775 | ~0.000 | sign acc 0.182 |
-| Post | Gain/loss | Ridge | 3.277 | 4.333 | 0.188 | sign acc 0.561 |
-| Pre | Top 10 | LogReg | — | — | — | ROC-AUC 0.759; PR-AUC 0.764; F1 0.662; Brier 0.199 |
-| Post | Top 10 | LogReg | — | — | — | ROC-AUC 0.837; PR-AUC 0.839; F1 0.766; Brier 0.163 |
-| Pre | Podium | LogReg | — | — | — | PR-AUC 0.580; ROC-AUC 0.892; F1 0.602; Brier 0.133 |
-| Post | Podium | LogReg | — | — | — | PR-AUC 0.765; ROC-AUC 0.941; F1 0.701; Brier 0.102 |
+Pre/post contexts contain different eligible entries. Their direct comparison therefore uses only the **471 common driver-race rows**.
 
-Frozen classification thresholds: pre top-10 0.55, pre podium 0.65, post top-10 0.40, post podium 0.80.
+| Task | Metric | Pre | Post | Improvement |
+| --- | --- | ---: | ---: | ---: |
+| Position | MAE | 3.7473 | 3.1019 | 0.6454 reduction |
+| Top 10 | ROC-AUC | 0.7805 | 0.8346 | 0.0542 increase |
+| Podium | PR-AUC | 0.5835 | 0.7832 | 0.1998 increase |
+| Gain/loss | MAE | 3.3248 | 3.2229 | 0.1019 reduction |
 
-## Model-family comparison findings
+Source: [context_lift_common_subset.csv](figures/context_lift_common_subset.csv), derived from saved predictions by `ml_pipeline/thesis_visualizations.py`.
 
-- **Ordinal regression wins finishing position.** `LogisticAT` (proportional-odds) and `OrdinalRidge` are the two best position models in both contexts, ahead of Ridge/ElasticNet and the tree/boosters. This is consistent with the target being inherently ordered (1st < 2nd < …). Holdout MAE improved from 3.918 (prior pre Ridge) to 3.896 and from 3.283 (prior post Ridge) to 3.186.
-- **Ranking objectives underperformed.** `LGBMRank` (MAE 8.13) and `XGBRank` (MAE 8.85) are the worst position models. Their relevance scores do not map to absolute finishing positions, so the rank→position conversion produces poor MAE. This is a negative finding: listwise/pairwise ranking did not help this small-data, absolute-position task.
-- **Calibration did not change champions.** The calibrated tree variants did not win any task; logistic regression (already well calibrated) remains the champion classifier. The calibrated Random Forest was the runner-up for pre-qualifying podium.
-- **Simple linear/logistic models still dominate** top-10, podium, and gain/loss, confirming the earlier finding that more complex boosters are not automatically better on ~1,700 rows.
+![Context comparison on the common holdout subset](figures/fig_context_lift_all_final_holdout.png)
 
-## Pre- versus post-qualifying comparison
+These compare the validation-selected model for each context, not one fixed estimator with a feature switched on/off. They are descriptive comparisons, not causal effects.
 
-Post-qualifying information materially improves three tasks on the 2025 holdout:
+**Population clarification:** Table 5 in the submitted thesis uses common-subset model values while its caption and most baseline values refer to full context-specific populations. The two tables above separate these calculations explicitly. The submitted documents and frozen experiment outputs are preserved; this reporting clarification requires no retraining.
 
-- Finishing-position MAE improved by **0.710 positions** (3.896 → 3.186), race Spearman 0.506 → 0.653.
-- Top-10 ROC-AUC improved by **0.078** (0.759 → 0.837); Brier fell 0.199 → 0.163.
-- Podium PR-AUC improved by **0.185** (0.580 → 0.765), the strongest information-context result.
-- Position-gain MAE improved by only **0.045 positions** (3.322 → 3.277); the pre-qualifying model still does not beat zero change.
+## Statistical evidence
 
-## Feature-ablation findings
+`significance.json` contains race-cluster bootstrap intervals and paired comparisons of each champion with its validation runner-up, using 68 aligned validation races. Differences are champion minus runner-up on **MAE for regression** and **Brier score for classification**.
 
-The ablation results (multi-fold validation matrix) are consistent with the prior experiment and remain available under `ablations/`. The all-feature post-qualifying set (including grid/qualifying) is the strongest for position, top-10, and podium; pre-qualifying form-only is essentially tied with the full pre-qualifying set for position and top-10.
+| Task/context | Runner-up | Paired loss difference 95% interval | Two-sided p |
+| --- | --- | --- | ---: |
+| Position / Pre | OrdinalRidge | [-0.0558, 0.0611] | 0.9714 |
+| Position / Post | OrdinalRidge | [-0.0990, 0.0158] | 0.1866 |
+| Top 10 / Pre | LogisticRegression | [-0.0077, 0.0036] | 0.5233 |
+| Top 10 / Post | LogisticRegression | [-0.0062, 0.0029] | 0.4505 |
+| Podium / Pre | XGBClassifier | [-0.0434, -0.0302] | 0.0002 |
+| Podium / Post | RandomForestClassifierCalibrated | [0.0347, 0.0468] | 0.0002 |
+| Gain/loss / Pre | ElasticNet | [-0.1612, -0.0891] | 0.0002 |
+| Gain/loss / Post | Ridge | [-0.0119, 0.0011] | 0.1188 |
 
-## Appropriate thesis use
+Most close selections do not demonstrate a clear paired-loss advantage. For podium after qualifying, Logistic Regression wins validation PR-AUC but has worse Brier loss than the calibrated Random Forest; the positive interval must not be described as proof of PR-AUC superiority. Primary classification intervals use pooled predictions, while selection averages season scores and paired tests weight races. These are different estimands.
 
-### Abstract
+Calibration/reliability files and feature-ablation tables remain in the bundle for inspection. They should be interpreted alongside the full candidate leaderboard, not used to retrospectively change the holdout-selected narrative.
 
-Use the held-out 2025 finding that post-qualifying models improved finishing-position MAE from 3.896 to 3.186 and podium PR-AUC from 0.580 to 0.765 relative to the pre-qualifying context, and that **ordinal regression (`LogisticAT`) is the best model for finishing position in both contexts**, beating point regression and ranking objectives. State that the comparison is chronological and held out, validated across three rolling folds (2022–2024) with race-cluster bootstrap CIs and paired permutation tests.
+## Reproduction and limitations
 
-### Results chapter
+The [README](../README.md) provides commands for installing frozen champions and rerunning the methodology. Model Lab should be queried with the explicit thesis ID when later local runs exist.
 
-Use the champion and final-holdout tables above, the significance table (CIs + p-values), calibration metrics (Brier/log loss), and the generated figures under `figures/`. Emphasize (1) ordinal regression wins the position task; (2) ranking objectives underperform; (3) simple linear/logistic models still win the remaining tasks; (4) Top-10 differences are not statistically significant, so the "which model" claim there must be qualified. Include the zero-change pre-qualifying gain/loss winner as a negative finding.
+The manifest records 420/440/440/479/479 pre-qualifying feature rows and 440/440/440/479/479 post-qualifying feature rows for 2021–2025. These are feature counts, not all task-eligible evaluation counts. The 2022 snapshot has no lap data, and missing pace values are imputed within training folds.
 
-### Limitations section
+The bundle preserves the original configuration, CSV/JSON evidence, report, and model files without modification. The CSV tables are the detailed numerical source; the generated `report.md` is not a substitute for the complete result tables. The original database snapshot and training Git revision/dirty state are absent. Exact historical retraining is therefore not guaranteed from live upstream data, even with the same seed and pinned dependencies.
 
-State all of the following:
+Other limitations include correlated driver observations, a small number of seasons, changing regulations/competitive order, unexpected incidents, and internal non-temporal `cv=3` calibration within training data. The holdout is not evidence of future-season guarantees.
 
-- Lap data was not ingested for 2022, so `avg_race_pace_ms` is median-filled for ~88% of 2022 training rows.
-- Race incidents, safety cars, red flags, reliability failures, and strategy are not observed at prediction time.
-- Weather remains uncertain; target-race weather fields were excluded pending leakage-safe forecast provenance.
-- Podium classification is class-imbalanced; PR-AUC, calibration, and confidence intervals matter more than raw accuracy.
-- Competitive order and regulations change between seasons; a 2025 holdout does not guarantee stability under future rule/car changes.
-- Ranking-model MAE is computed on rank-derived positions (rank 1 = best), not raw scores, which inflates their absolute MAE.
-- Classification thresholds are selected on the candidate's default configuration, not the search-tuned one; primary ROC-AUC/PR-AUC are threshold-independent.
-- Calibration mapping uses internal random cross-validation (cv=3) within each fold's training data (a non-temporal calibration step, not model selection).
-- Search spaces are predeclared in code (`ml_pipeline/hyperparameter_search.py`); the manifest records the selected configs and data fingerprints.
+## Historical runs
 
-## Artifact inventory
+Earlier runs remain local/historical rather than public thesis defaults:
 
-The experiment contains `manifest.json`, `config.json`, `significance.json`, candidate and ablation result tables, row-level out-of-fold predictions, calibration/reliability files, final-holdout results, eight promoted champion joblibs, and ten PNG figures.
+- `f1-2025holdout-20260828T203629Z`: two-fold validation.
+- `f1-2025holdout-20260829T172358Z`: three-fold experiment before the later model framework.
+- `f1-2025holdout-20260829T221238Z`: initial ordinal/ranking/calibrated framework, superseded by later fixes.
+- `f1-2025holdout-20260830T220241Z`: intermediate run preceding the final feature contract.
+- June `thesis-final-2025-holdout-20260620*` runs: older experiments retained in repository history.
 
-## Historical experiment reference
-
-Earlier experiments are preserved in `f1-platform/backend/models_store/experiments/` for reference and are superseded by this run:
-
-- `thesis-final-2025-holdout-20260620-r3` (2021/2023/2024 only) predates the 2022 recovery.
-- `f1-2025holdout-20260828T203629Z` is the two-fold run (`--min-train-seasons 2`).
-- `f1-2025holdout-20260829T172358Z` is the three-fold run before the grid-parity fix, nested search, and new candidate families. Its Ridge/LogisticRegression champions are preserved as the pre-rigor baseline; this experiment's ordinal-model champion supersedes Ridge for finishing position.
+Their manifests retain their original identities. They must not be relabeled as the August 31 experiment.

@@ -1,2 +1,0 @@
-"""Season ingestion placeholder."""
-

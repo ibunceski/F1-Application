@@ -58,7 +58,7 @@ if str(PROJECT_DIR) not in sys.path:
 load_dotenv(ROOT_DIR / ".env")
 load_dotenv(PROJECT_DIR / ".env", override=False)
 
-from app.ml.baseline_models import GridPositionRegressor, MedianRegressor, ZeroChangeRegressor
+from app.ml.baseline_models import GridPositionRegressor, MedianRegressor, QualifyingPositionRegressor, ZeroChangeRegressor
 from app.ml.ordinal_models import LightGBMRankRegressor, LogisticATRegressor, OrdinalRidgeRegressor, XGBRankRegressor
 from app.models.ml_feature import POST_QUALIFYING, PRE_QUALIFYING
 from ingestion.db_helpers import get_sync_engine
@@ -82,6 +82,7 @@ from ml_pipeline.statistical_evaluation import (
     pooled_roc_auc,
 )
 from ml_pipeline.temporal_splits import TemporalFold, generate_temporal_folds
+from ml_pipeline.thesis_visualizations import generate_thesis_visualization_package
 
 LOGGER = logging.getLogger("ml.experiments")
 
@@ -96,7 +97,6 @@ PRE_QUALIFYING_FEATURE_COLS = [
     "dnf_rate_recent",
 ]
 POST_QUALIFYING_FEATURE_COLS = [
-    "grid_position",
     "qualifying_position",
     "gap_to_pole_ms",
     *PRE_QUALIFYING_FEATURE_COLS,
@@ -319,7 +319,7 @@ def load_feature_dataframe(feature_context: str, allowed_seasons: list[int]) -> 
     # fields used by their context.  Missing values in other columns remain a
     # fold-local imputation concern.
     if feature_context == POST_QUALIFYING:
-        df = df[df["grid_position"].notna() & df["qualifying_position"].notna()].copy()
+        df = df[df["qualifying_position"].notna()].copy()
     return df.sort_values(["season_year", "race_date", "race_id", "driver_id"]).reset_index(drop=True)
 
 
@@ -338,8 +338,8 @@ def candidate_factories(task: TaskName, context: str, feature_cols: list[str]) -
         ]
         if task == "position_gain_model":
             candidates[0] = Candidate("ZeroChangeBaseline", 0, lambda _y, _seed: ZeroChangeRegressor())
-        if task == "position_model" and context == POST_QUALIFYING and "grid_position" in feature_cols:
-            candidates.append(Candidate("GridPositionBaseline", 0, lambda _y, _seed: GridPositionRegressor()))
+        if task == "position_model" and context == POST_QUALIFYING and "qualifying_position" in feature_cols:
+            candidates.append(Candidate("QualifyingPositionBaseline", 0, lambda _y, _seed: QualifyingPositionRegressor()))
         candidates.extend(
             [
                 Candidate("Ridge", 1, lambda _y, _seed: build_pipeline(Ridge(alpha=1.0), feature_cols), tuple(REGRESSION_SEARCH_SPACES["Ridge"])),
@@ -368,11 +368,20 @@ def candidate_factories(task: TaskName, context: str, feature_cols: list[str]) -
     ]
 
 
+def baseline_candidate_name(task: TaskName, context: str) -> str:
+    """Return the domain/no-skill comparator frozen before holdout use."""
+    if task == "position_model":
+        return "QualifyingPositionBaseline" if context == POST_QUALIFYING else "MedianBaseline"
+    if task == "position_gain_model":
+        return "ZeroChangeBaseline"
+    return "PrevalenceBaseline"
+
+
 def feature_ablation_sets(context: str) -> dict[str, list[str]]:
     """Feature subsets used to quantify information-set contribution.
 
     The post-qualifying ``all_features`` condition deliberately includes the
-    grid/qualifying fields; this makes the information gain explicit while
+    qualifying fields; this makes the information gain explicit while
     retaining the exact same target semantics and temporal splits.
     """
     form_only = ["driver_recent_form", "team_recent_form"]
@@ -381,7 +390,7 @@ def feature_ablation_sets(context: str) -> dict[str, list[str]]:
         "form_only": form_only,
         "form_plus_circuit_history": form_plus_circuit,
     }
-    all_features_name = "all_features_including_grid_qualifying" if context == POST_QUALIFYING else "all_features"
+    all_features_name = "all_features_including_qualifying" if context == POST_QUALIFYING else "all_features"
     sets[all_features_name] = list(CONTEXT_FEATURE_COLS[context])
     return sets
 
@@ -464,7 +473,33 @@ def calibration_reliability(y_true: pd.Series, probabilities: np.ndarray, n_bins
     return pd.DataFrame(rows)
 
 
-def choose_classification_threshold(candidate: Candidate, train_df: pd.DataFrame, target: str, feature_cols: list[str], seed: int) -> tuple[float, int | None]:
+def build_candidate_model(
+    candidate: Candidate,
+    y_train: pd.Series,
+    seed: int,
+    feature_cols: list[str],
+    task: TaskName,
+    hyperparams: dict[str, Any] | None = None,
+) -> Any:
+    """Build a candidate with its selected parameters when it has a search space.
+
+    Keeping construction in one place prevents a threshold-tuning refit from
+    silently reverting a selected model to its factory defaults.
+    """
+    if hyperparams is not None and candidate.space:
+        estimator = build_model_from_config(candidate.name, hyperparams, seed, feature_cols, task, y_train)
+        return build_pipeline(estimator, feature_cols)
+    return candidate.factory(y_train, seed)
+
+
+def choose_classification_threshold(
+    candidate: Candidate,
+    train_df: pd.DataFrame,
+    target: str,
+    feature_cols: list[str],
+    seed: int,
+    hyperparams: dict[str, Any] | None = None,
+) -> tuple[float, int | None]:
     """Choose a threshold on a strictly earlier inner season, never outer data."""
     inner_seasons = sorted(train_df["season_year"].unique().tolist())
     if len(inner_seasons) < 2:
@@ -474,7 +509,14 @@ def choose_classification_threshold(candidate: Candidate, train_df: pd.DataFrame
     inner_validation = train_df[train_df["season_year"] == threshold_season]
     if inner_train.empty or inner_validation.empty or inner_train[target].nunique() < 2:
         return 0.5, None
-    model = candidate.factory(inner_train[target].astype(int), seed)
+    model = build_candidate_model(
+        candidate,
+        inner_train[target].astype(int),
+        seed,
+        feature_cols,
+        next(task for task, task_target in TASK_TARGETS.items() if task_target == target),
+        hyperparams,
+    )
     model.fit(inner_train[feature_cols], inner_train[target].astype(int))
     probabilities = model.predict_proba(inner_validation[feature_cols])[:, 1]
     thresholds = np.linspace(0.05, 0.95, 19)
@@ -497,6 +539,7 @@ def evaluate_candidate(
     analysis_type: str = "candidate_model",
     ablation: str | None = None,
     hyperparams: dict[str, Any] | None = None,
+    hyperparameter_selection_scope: str | None = None,
 ) -> tuple[dict[str, Any], pd.DataFrame, Any]:
     target = TASK_TARGETS[task]
     train_target = train_df[train_df[target].notna()].copy()
@@ -510,7 +553,9 @@ def evaluate_candidate(
     if kind == "classification":
         if train_target[target].nunique() < 2:
             raise ValueError(f"Training partition has one class for {task} in {fold_name}.")
-        threshold, threshold_selection_season = choose_classification_threshold(candidate, train_target, target, feature_cols, seed)
+        threshold, threshold_selection_season = choose_classification_threshold(
+            candidate, train_target, target, feature_cols, seed, hyperparams=hyperparams
+        )
         y_train = train_target[target].astype(int)
     else:
         y_train = train_target[target].astype(float)
@@ -524,11 +569,7 @@ def evaluate_candidate(
         metrics = regression_metrics(validation_target[target].astype(float), predictions, task, validation_target["race_id"])
         row_prediction = predictions
     else:
-        model = (
-            build_pipeline(build_model_from_config(candidate.name, hyperparams, seed, feature_cols, task, y_train), feature_cols)
-            if hyperparams is not None and candidate.space
-            else candidate.factory(y_train, seed)
-        )
+        model = build_candidate_model(candidate, y_train, seed, feature_cols, task, hyperparams)
         model.fit(train_target[feature_cols], y_train)
         if kind == "classification":
             probabilities = model.predict_proba(validation_target[feature_cols])[:, 1]
@@ -552,6 +593,8 @@ def evaluate_candidate(
         "threshold": threshold if kind == "classification" else np.nan,
         "threshold_selection_season": threshold_selection_season,
         "threshold_selection_scope": "inner_validation_before_outer" if kind == "classification" else None,
+        "hyperparameters": dict(hyperparams) if hyperparams is not None else {},
+        "hyperparameter_selection_scope": hyperparameter_selection_scope if hyperparams is not None else None,
         "train_rows": len(train_target),
         "validation_rows": len(validation_target),
         **metrics,
@@ -737,14 +780,21 @@ def write_json(path: Path, value: Any) -> None:
 
 def feature_importances(model: Any, feature_cols: list[str]) -> dict[str, float]:
     estimator = model
+    transformed_feature_names = list(feature_cols)
     if isinstance(model, Pipeline):
         estimator = model.named_steps["model"]
+        preprocessor = model.named_steps.get("preprocessor")
+        if preprocessor is not None:
+            transformed_feature_names = [
+                str(name).split("__", 1)[-1]
+                for name in preprocessor.get_feature_names_out()
+            ]
     values = getattr(estimator, "feature_importances_", None)
     if values is None and hasattr(estimator, "coef_"):
         values = np.abs(np.asarray(estimator.coef_)).ravel()
     if values is None:
         return {}
-    return {name: float(value) for name, value in zip(feature_cols, values, strict=False)}
+    return {name: float(value) for name, value in zip(transformed_feature_names, values, strict=False)}
 
 
 def write_markdown_report(path: Path, manifest: dict[str, Any], aggregate: pd.DataFrame, final_results: pd.DataFrame) -> None:
@@ -1003,8 +1053,9 @@ def promote_champions(
     aggregate: pd.DataFrame,
     feature_columns: dict[str, list[str]],
     manifest: dict[str, Any],
+    copy_to_deployment: bool = True,
 ) -> None:
-    """Atomically replace only production filenames after all experiment work succeeds."""
+    """Stage champion artifacts and optionally copy them to production names."""
     deployment_dir.mkdir(parents=True, exist_ok=True)
     staged_dir = experiment_dir / "champions"
     staged_dir.mkdir(exist_ok=True)
@@ -1044,6 +1095,13 @@ def promote_champions(
     for context, context_metadata in metadata_by_context.items():
         write_json(staged_dir / f"{context}_model_metadata.json", context_metadata)
         write_json(staged_dir / f"{context}_feature_importances.json", importances_by_context[context])
+    if copy_to_deployment:
+        copy_staged_champions(deployment_dir, staged_dir)
+
+
+def copy_staged_champions(deployment_dir: Path, staged_dir: Path) -> None:
+    """Promote a fully staged and verified champion bundle."""
+    deployment_dir.mkdir(parents=True, exist_ok=True)
     for staged_file in staged_dir.iterdir():
         if staged_file.is_file():
             shutil.copy2(staged_file, deployment_dir / staged_file.name)
@@ -1093,6 +1151,7 @@ def run_experiment(args: argparse.Namespace) -> Path:
                     result, prediction_df, _ = evaluate_candidate(
                         candidate, task, context, train_df, validation_df, CONTEXT_FEATURE_COLS[context], fold.name,
                         args.seed + fold_number * 100 + candidate_number, "validation", hyperparams=hyperparams,
+                        hyperparameter_selection_scope="fold_training_inner_rolling_validation" if hyperparams is not None else None,
                     )
                     result_rows.append(result)
                     prediction_frames.append(prediction_df)
@@ -1101,6 +1160,8 @@ def run_experiment(args: argparse.Namespace) -> Path:
     aggregate = aggregate_validation_results(validation_results, candidates_by_task)
     champion_models: dict[tuple[str, TaskName], tuple[Any, dict[str, Any]]] = {}
     final_rows: list[dict[str, Any]] = []
+    final_refit_hyperparameters: dict[str, dict[str, Any]] = {}
+    final_hyperparameter_search_records: dict[str, list[dict[str, Any]]] = {}
     holdout_year = evaluation_seasons[0]
     for context in contexts:
         frame = frames[context]
@@ -1112,14 +1173,54 @@ def run_experiment(args: argparse.Namespace) -> Path:
                 raise RuntimeError(f"Expected exactly one validation champion for {context}/{task}.")
             selected_name = str(selected.iloc[0]["algorithm"])
             candidate = next(item for item in candidates_by_task[(context, task)] if item.name == selected_name)
+            final_seed = args.seed + 10000 + len(champion_models)
+            final_hyperparams: dict[str, Any] | None = None
+            if candidate.space:
+                # The model family is already fixed by outer-fold performance.
+                # Re-selecting its parameters over all development seasons uses
+                # only expanding inner validation folds and never sees 2025.
+                final_hyperparams, search_records = select_hyperparameters(
+                    candidate.name,
+                    list(candidate.space),
+                    development_df,
+                    TASK_TARGETS[task],
+                    CONTEXT_FEATURE_COLS[context],
+                    task,
+                    final_seed,
+                )
+                config_key = f"{context}:{task}:{candidate.name}"
+                final_refit_hyperparameters[config_key] = dict(final_hyperparams)
+                final_hyperparameter_search_records[config_key] = search_records
             result, prediction_df, model = evaluate_candidate(
                 candidate, task, context, development_df, holdout_df, CONTEXT_FEATURE_COLS[context], f"holdout_{holdout_year}",
-                args.seed + 10000 + len(champion_models), "final_holdout",
+                final_seed, "final_holdout", hyperparams=final_hyperparams,
+                hyperparameter_selection_scope="full_development_expanding_inner_validation" if final_hyperparams is not None else None,
             )
+            baseline_name = baseline_candidate_name(task, context)
+            result["holdout_role"] = "champion_and_domain_baseline" if selected_name == baseline_name else "champion"
             result_rows.append(result)
             final_rows.append(result)
             prediction_frames.append(prediction_df)
             champion_models[(context, task)] = (model, result)
+            if selected_name != baseline_name:
+                baseline_candidate = next(
+                    item for item in candidates_by_task[(context, task)] if item.name == baseline_name
+                )
+                baseline_result, baseline_predictions, _ = evaluate_candidate(
+                    baseline_candidate,
+                    task,
+                    context,
+                    development_df,
+                    holdout_df,
+                    CONTEXT_FEATURE_COLS[context],
+                    f"holdout_{holdout_year}",
+                    final_seed + 50000,
+                    "final_holdout",
+                )
+                baseline_result["holdout_role"] = "domain_baseline"
+                result_rows.append(baseline_result)
+                final_rows.append(baseline_result)
+                prediction_frames.append(baseline_predictions)
 
     # Each feature subset receives the same candidate matrix and temporal
     # folds.  Its own winner is validation-selected, then clearly persisted as
@@ -1179,10 +1280,13 @@ def run_experiment(args: argparse.Namespace) -> Path:
         "candidate_algorithms": {f"{context}:{task}": [candidate.name for candidate in candidates] for (context, task), candidates in candidates_by_task.items()},
         "feature_ablations": {context: feature_ablation_sets(context) for context in contexts},
         "selected_hyperparameters": selected_configs,
+        "final_refit_hyperparameters": final_refit_hyperparameters,
+        "final_hyperparameter_search_records": final_hyperparameter_search_records,
         "configuration": {
             "min_train_seasons": args.min_train_seasons,
             "validation_strategy": "expanding_rolling_origin_by_completed_season",
             "selection_rule": "best_mean_primary_validation_metric_with_simpler_model_tie_break",
+            "final_hyperparameter_rule": "champion_parameter_selection_on_full_development_expanding_inner_validation",
             "classification_threshold_rule": "F1_on_last_inner_training_season_only",
             "final_holdout_used_for_selection": False,
             "feature_ablation_method": "same_candidate_matrix_and_temporal_folds_with_validation_only_selection",
@@ -1204,12 +1308,26 @@ def run_experiment(args: argparse.Namespace) -> Path:
         significance=significance,
     )
     validate_artifact_schema(experiment_dir)
+    # Write champion metadata/importances into the immutable experiment first;
+    # deployment is updated only after the complete report package succeeds.
+    promote_champions(
+        deployment_dir,
+        experiment_dir,
+        champion_models,
+        aggregate,
+        {context: CONTEXT_FEATURE_COLS[context] for context in contexts},
+        manifest,
+        copy_to_deployment=False,
+    )
     if args.generate_plots:
-        generated = generate_thesis_figures(experiment_dir)
-        LOGGER.info("Generated %s thesis figures in %s", len(generated), experiment_dir / "figures")
+        # PROJECT_DIR is the backend bind mount in Docker; ROOT_DIR resolves to
+        # the container filesystem root there and would make reports ephemeral.
+        report_dir = PROJECT_DIR / "reports" / "thesis_figures" / experiment_id
+        generated = generate_thesis_visualization_package(experiment_dir, report_dir)
+        LOGGER.info("Generated %s publication figures in %s", len(generated), report_dir)
     # Promotion is intentionally last: an exception during comparison or artifact
     # writing leaves the currently deployed joblibs untouched.
-    promote_champions(deployment_dir, experiment_dir, champion_models, aggregate, {context: CONTEXT_FEATURE_COLS[context] for context in contexts}, manifest)
+    copy_staged_champions(deployment_dir, experiment_dir / "champions")
     LOGGER.info("Experiment %s completed; artifacts: %s", experiment_id, experiment_dir)
     return experiment_dir
 

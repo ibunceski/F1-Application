@@ -35,11 +35,12 @@ function percentile(values: number[], p: number) {
   return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
 }
 
-function box(driver: string, y: number, laps: LapTime[]): PaceBox {
-  const values = cleanLapTimes(laps).map((value) => value / 1000);
+function box(driver: string, x: number, laps: LapTime[]): PaceBox | null {
+  const values = cleanLapTimes(laps).filter((value) => Number.isFinite(value) && value > 0).map((value) => value / 1000);
+  if (!values.length) return null;
   return {
     driver,
-    x: y,
+    x,
     p10: percentile(values, 0.1),
     p25: percentile(values, 0.25),
     p50: percentile(values, 0.5),
@@ -68,20 +69,25 @@ function BoxShape({ xAxis, yAxis, payload }: BoxShapeProps) {
 }
 
 export function RacePaceDistribution({ lapTimesD1, lapTimesD2, d1Name, d2Name }: RacePaceDistributionProps) {
-  const data = [box(d1Name, 2, lapTimesD1), box(d2Name, 1, lapTimesD2)];
+  const data = [box(d1Name, 2, lapTimesD1), box(d2Name, 1, lapTimesD2)].filter((value): value is PaceBox => value !== null);
+  // Scatter only exposes p50 to Recharts; the custom shape also draws p10 through p90.
+  const minimum = data.length ? Math.min(...data.map((value) => value.p10)) : 0;
+  const maximum = data.length ? Math.max(...data.map((value) => value.p90)) : 1;
+  const padding = Math.max((maximum - minimum) * 0.1, 0.5);
+  const domain: [number, number] = [minimum - padding, maximum + padding];
 
   return (
     <section className="card p-4">
       <p className="section-label mb-4">Race Pace Distribution</p>
       <div className="h-80">
-        <ResponsiveContainer width="100%" height="100%">
+        {data.length ? <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 12, right: 24, bottom: 12, left: 16 }}>
             <CartesianGrid stroke="#2A2A3D" />
             <XAxis type="number" dataKey="x" domain={[0.5, 2.5]} ticks={[1, 2]} tickFormatter={(value) => (value === 2 ? d1Name : d2Name)} stroke="#6B6B80" tick={{ fill: '#E8E8F0' }} />
-            <YAxis type="number" dataKey="p50" domain={['dataMin - 0.5', 'dataMax + 0.5']} stroke="#6B6B80" tick={{ fill: '#6B6B80' }} tickFormatter={(value) => `${Number(value).toFixed(1)}s`} />
-            <Scatter data={data} shape={<BoxShape />} />
+            <YAxis type="number" dataKey="p50" domain={domain} stroke="#6B6B80" tick={{ fill: '#6B6B80' }} tickFormatter={(value) => `${Number(value).toFixed(1)}s`} />
+            <Scatter data={data} shape={<BoxShape />} isAnimationActive={false} />
           </ComposedChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-f1-muted">No clean lap times available for this comparison.</p>}
       </div>
     </section>
   );

@@ -38,3 +38,20 @@ class GridPositionRegressor(BaseEstimator, RegressorMixin):
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         values = pd.to_numeric(X["grid_position"], errors="coerce").fillna(self.fallback_)
         return values.to_numpy(dtype=float)
+
+
+class QualifyingPositionRegressor(BaseEstimator, RegressorMixin):
+    """Post-qualifying domain baseline using the available qualifying order.
+
+    The active post-qualifying model deliberately contains only one position
+    predictor.  Keeping this estimator separate from the legacy grid baseline
+    avoids duplicating the same signal under two feature names.
+    """
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> "QualifyingPositionRegressor":
+        self.fallback_ = float(pd.Series(y).median())
+        return self
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        values = pd.to_numeric(X["qualifying_position"], errors="coerce").fillna(self.fallback_)
+        return values.to_numpy(dtype=float)

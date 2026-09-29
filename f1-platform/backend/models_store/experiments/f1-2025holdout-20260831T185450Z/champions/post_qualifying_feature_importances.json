@@ -1,0 +1,33 @@
+{
+  "podium_model": {
+    "avg_race_pace_ms": 0.09938647306097391,
+    "circuit_history_avg_finish": 0.1464124208177616,
+    "circuit_history_dnf_rate": 0.006485890374854423,
+    "dnf_rate_recent": 0.13418521577691417,
+    "driver_recent_form": 0.44348179293086204,
+    "gap_to_pole_ms": 0.163270018358571,
+    "qualifying_position": 1.9378051746168028,
+    "team_recent_form": 0.712967207802701
+  },
+  "position_gain_model": {
+    "avg_race_pace_ms": 0.05729417675113697,
+    "circuit_history_avg_finish": 0.20343041399778095,
+    "circuit_history_dnf_rate": 0.06973262143019644,
+    "dnf_rate_recent": 0.3590250034643855,
+    "driver_recent_form": 0.8303011033822371,
+    "gap_to_pole_ms": 0.0,
+    "qualifying_position": 2.330045300464785,
+    "team_recent_form": 0.6270587882791453
+  },
+  "position_model": {
+    "avg_race_pace_ms": 0.01287944918294611,
+    "circuit_history_avg_finish": 0.11035582272523058,
+    "circuit_history_dnf_rate": 0.011340601077421446,
+    "dnf_rate_recent": 0.12178314932132105,
+    "driver_recent_form": 0.4181197556091257,
+    "gap_to_pole_ms": 0.014078597720284407,
+    "qualifying_position": 1.0347055975615242,
+    "team_recent_form": 0.2976186658972243
+  },
+  "top10_model": {}
+}

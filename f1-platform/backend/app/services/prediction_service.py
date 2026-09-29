@@ -32,7 +32,6 @@ PRE_QUALIFYING_FEATURE_COLS = [
 ]
 
 POST_QUALIFYING_FEATURE_COLS = [
-    "grid_position",
     "qualifying_position",
     "gap_to_pole_ms",
     "avg_race_pace_ms",

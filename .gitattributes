@@ -1,0 +1,2 @@
+# Preserve the frozen experiment byte-for-byte on every platform.
+f1-platform/backend/models_store/experiments/f1-2025holdout-20260831T185450Z/** -text
